@@ -179,8 +179,8 @@ which is a curve in the radius and so is sampled into a gradient rather than han
 stops.
 
 **What reaches the mark:** radius, opacity, hardness, spacing, the pile-up correction, and the two
-random offsets. **What does not:** elliptical dabs, smudge, colour dynamics, tracking, the custom
-input, and the eraser.
+random offsets. **What does not:** elliptical dabs, smudge, colour dynamics, tracking, and the
+eraser.
 
 The pile-up correction is `opaque_linearize`, and it is worth calling out because its default is
 0.9 rather than 0 -- so it applies to nearly every brush file whether or not the file mentions it.

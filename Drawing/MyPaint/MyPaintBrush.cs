@@ -24,6 +24,12 @@ public enum MyPaintSetting
     /// <summary>Dab alpha before <see cref="OpaqueMultiply"/>.</summary>
     Opaque,
 
+    /// <summary>Feeds <see cref="BrushInput.Custom"/>. Not read for anything else.</summary>
+    CustomInput,
+
+    /// <summary>How slowly <see cref="BrushInput.Custom"/> follows <see cref="CustomInput"/>.</summary>
+    CustomInputSlowness,
+
     /// <summary>A second alpha, multiplied in. Usually where pressure is attached.</summary>
     OpaqueMultiply,
 
@@ -135,6 +141,8 @@ public sealed class MyPaintBrush
         {
             [MyPaintSetting.RadiusLogarithmic] = 2.0f,
             [MyPaintSetting.Opaque] = 1.0f,
+            [MyPaintSetting.CustomInput] = 0.0f,
+            [MyPaintSetting.CustomInputSlowness] = 0.0f,
             [MyPaintSetting.OpaqueMultiply] = 0.0f,
             [MyPaintSetting.OpaqueLinearize] = 0.9f,
             [MyPaintSetting.Hardness] = 0.8f,
@@ -236,6 +244,8 @@ public sealed class MyPaintBrush
         {
             ["radius_logarithmic"] = MyPaintSetting.RadiusLogarithmic,
             ["opaque"] = MyPaintSetting.Opaque,
+            ["custom_input"] = MyPaintSetting.CustomInput,
+            ["custom_input_slowness"] = MyPaintSetting.CustomInputSlowness,
             ["opaque_multiply"] = MyPaintSetting.OpaqueMultiply,
             ["opaque_linearize"] = MyPaintSetting.OpaqueLinearize,
             ["hardness"] = MyPaintSetting.Hardness,
@@ -265,6 +275,7 @@ public sealed class MyPaintBrush
             ["tilt_declination"] = BrushInput.TiltDeclination,
             ["tilt_ascension"] = BrushInput.TiltAscension,
             ["barrel_rotation"] = BrushInput.BarrelRotation,
+            ["custom"] = BrushInput.Custom,
         };
 
     private readonly DynamicSetting[] _settings;

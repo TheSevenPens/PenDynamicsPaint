@@ -525,6 +525,139 @@ public class MyPaintEngineTests
         Assert.InRange(ink, 70, 100);
     }
 
+    /// <summary>
+    /// A brush whose radius is driven only through the custom input, which pressure feeds.
+    /// </summary>
+    /// <remarks>
+    /// Pressure reaches the mark by this one route and no other -- the opacity settings are fixed
+    /// -- so a stroke that changes width proves the custom input carried it. Hard dabs, so the
+    /// width being measured is the dab's own and not the point its falloff crosses a threshold.
+    /// </remarks>
+    private static MyPaintBrush CustomDriven(double slowness) =>
+        MyPaintBrush.Parse($$"""
+            {
+              "version": 3,
+              "settings": {
+                "radius_logarithmic": { "base_value": 2.0,
+                                        "inputs": { "custom": [[0.0, -0.8], [1.0, 0.8]] } },
+                "custom_input": { "base_value": 0.0,
+                                  "inputs": { "pressure": [[0.0, 0.0], [1.0, 1.0]] } },
+                "custom_input_slowness": { "base_value": {{slowness}} },
+                "opaque": { "base_value": 1.0 },
+                "opaque_multiply": { "base_value": 1.0 },
+                "opaque_linearize": { "base_value": 0.0 },
+                "hardness": { "base_value": 1.0 },
+                "dabs_per_actual_radius": { "base_value": 6.0 }
+              }
+            }
+            """, "custom");
+
+    /// <summary>A stroke that steps from light to heavy pressure half way along.</summary>
+    private static PaintSession PressureStep(MyPaintBrush brush)
+    {
+        var session = new PaintSession(900, 300) { Compositing = StrokeCompositing.Direct };
+        var settings = Using(brush);
+
+        for (int i = 0; i < 140; i++)
+            session.AddSample(40 + i * 6, 150, i < 70 ? 0.1 : 0.95, settings, default,
+                              (long)(i * 10_000));
+
+        session.EndStroke();
+        return session;
+    }
+
+    [Fact]
+    public void The_custom_input_reaches_the_mark()
+    {
+        // The odd input out: the others are read off the pen and this one off the brush, from a
+        // setting that can itself be driven by any of the others. A brush uses it to build a
+        // quantity the input list does not offer and then drive several settings from it -- the
+        // airbrush shrinks its radius from a pressure slowed this way, and before this went in the
+        // panel reported the curve as unused and the brush did not change width at all.
+        using var session = PressureStep(CustomDriven(slowness: 0));
+
+        int light = InkHeight(session, 300);
+        int heavy = InkHeight(session, 830);
+
+        Assert.True(heavy > light * 2.5,
+            $"the stroke should widen through the custom input: {light} px then {heavy} px");
+    }
+
+    [Fact]
+    public void The_custom_input_lags_by_its_own_slowness()
+    {
+        // custom_input_slowness, and the reason the input is a state rather than a reading. A
+        // brush sets it to follow pressure slowly, so that a jab does not snap the radius across.
+        int InkAfterTheStep(double slowness)
+        {
+            using var session = PressureStep(CustomDriven(slowness));
+            int total = 0;
+            for (int x = 460; x < 600; x++) total += InkHeight(session, x);
+            return total;
+        }
+
+        int prompt = InkAfterTheStep(0);
+        int lagged = InkAfterTheStep(5.0);
+
+        Assert.True(lagged < prompt * 0.85,
+            $"a slow custom input should take its time widening: {lagged} against {prompt}");
+
+        // And it is a lag, not a smaller brush: given the rest of the stroke it arrives anyway.
+        // This is the half that fails if the decay is fed the dab's real interval instead of
+        // libmypaint's fixed 0.1 -- the lag then runs ten times too long and never catches up.
+        using var slow = PressureStep(CustomDriven(5.0));
+        using var quick = PressureStep(CustomDriven(0));
+        Assert.True(InkHeight(slow, 830) >= InkHeight(quick, 830) - 3,
+            "by the end of the stroke the slow brush should have caught up");
+    }
+
+    [Fact]
+    public void The_custom_input_a_dab_sees_is_the_one_from_the_dab_before_it()
+    {
+        // libmypaint fills the input array from the states, then evaluates the settings, then
+        // advances the states -- so custom_input, which is a setting, only reaches the input on
+        // the following dab. A one-dab lag sounds like nothing, and on a brush laying six dabs to
+        // the radius it is nothing; the reason to pin it is that the brushes using this input are
+        // the ones laying dabs far apart, where one dab is the whole visible unit.
+        //
+        // Sparse hard dabs and opacity driven straight off the custom input, so each dab is its
+        // own mark and reads as light or dark with nothing in between.
+        var brush = MyPaintBrush.Parse("""
+            {
+              "version": 3,
+              "settings": {
+                "radius_logarithmic": { "base_value": 1.8 },
+                "custom_input": { "base_value": 0.0,
+                                  "inputs": { "pressure": [[0.0, 0.0], [1.0, 1.0]] } },
+                "custom_input_slowness": { "base_value": 0.0 },
+                "opaque": { "base_value": 1.0 },
+                "opaque_multiply": { "base_value": 0.0,
+                                     "inputs": { "custom": [[0.0, 0.05], [1.0, 1.0]] } },
+                "opaque_linearize": { "base_value": 0.0 },
+                "hardness": { "base_value": 1.0 },
+                "dabs_per_actual_radius": { "base_value": 0.5 }
+              }
+            }
+            """, "order");
+
+        using var session = new PaintSession(900, 300) { Compositing = StrokeCompositing.Direct };
+        var settings = Using(brush);
+
+        const int StepX = 340;
+        for (int i = 0; i < 100; i++)
+            session.AddSample(40 + i * 6, 150, i < 50 ? 0.1 : 0.95, settings, default,
+                              (long)(i * 10_000));
+        session.EndStroke();
+
+        int firstDark = 0;
+        while (firstDark < 900 && session.Bitmap.GetPixel(firstDark, 150).Red > 100) firstDark++;
+
+        // The pen presses harder at StepX and the dab there still carries the reading before it,
+        // so the ink darkens one dab later. Advancing the state first puts it one dab early
+        // instead, which lands before the step rather than after it.
+        Assert.InRange(firstDark, StepX + 1, StepX + 30);
+    }
+
     [Fact]
     public void A_stroke_records_the_brush_so_an_undo_replays_it()
     {

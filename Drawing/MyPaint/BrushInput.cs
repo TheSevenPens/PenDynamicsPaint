@@ -11,9 +11,9 @@ namespace PenDynamicsPaint.Drawing.MyPaint;
 /// </para>
 /// <para>
 /// <b>This is the subset the application can actually supply.</b> libmypaint defines eighteen;
-/// the rest need a canvas rotation, a grid map, a zoom-aware brush, or a host that feeds a custom
-/// value, none of which exist here. Listing only what can be computed keeps the gap visible: an
-/// input in this enum is one a stroke can really drive.
+/// the rest need a canvas rotation, a grid map or a zoom-aware brush, none of which exist here.
+/// Listing only what can be computed keeps the gap visible: an input in this enum is one a stroke
+/// can really drive.
 /// </para>
 /// </remarks>
 public enum BrushInput
@@ -44,6 +44,18 @@ public enum BrushInput
 
     /// <summary>Barrel rotation, for a pen that reports twist.</summary>
     BarrelRotation,
+
+    /// <summary>
+    /// Whatever the brush's own <c>custom_input</c> setting works out to, lagged.
+    /// </summary>
+    /// <remarks>
+    /// The odd one out: the others are read off the pen, and this one is read off the brush. The
+    /// setting that feeds it can itself be driven by any of the others, so a brush uses it to
+    /// build a quantity the input list does not offer -- a slowed-down pressure, or two inputs
+    /// mixed -- and then drive several settings from that one quantity. The airbrush shrinks its
+    /// radius from a pressure slowed this way.
+    /// </remarks>
+    Custom,
 }
 
 /// <summary>
@@ -57,7 +69,7 @@ public enum BrushInput
 public readonly struct BrushInputs
 {
     /// <summary>How many inputs there are, for anything that needs to size an array.</summary>
-    public const int Count = (int)BrushInput.BarrelRotation + 1;
+    public const int Count = (int)BrushInput.Custom + 1;
 
     private readonly float[] _values;
 
@@ -84,5 +96,6 @@ public readonly struct BrushInputs
         0.0f,   // tilt declination
         0.0f,   // tilt ascension
         0.0f,   // barrel rotation
+        0.0f,   // custom
     ]);
 }

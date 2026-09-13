@@ -36,6 +36,17 @@ public sealed class BrushInputTracker
     /// <summary>libmypaint's two fixed points for the speed curve, from <c>mypaint-brush.c</c>.</summary>
     private const double SpeedFixX = 45.0, SpeedFixY = 0.5, SpeedFixSlope = 0.015;
 
+    /// <summary>The interval libmypaint lags the custom input over, in seconds.</summary>
+    /// <remarks>
+    /// A literal 0.1 in <c>mypaint-brush.c</c>, applied once per dab, and not the time the dab
+    /// actually took. So <c>custom_input_slowness</c> is a lag measured in dabs rather than in
+    /// seconds, and a brush using it responds differently at a different report rate -- the
+    /// dependence the rest of this application works to avoid. It is matched rather than corrected
+    /// because the point of the port is that a brush file behaves as its author tuned it; correcting
+    /// it here would make our airbrush a different brush from theirs.
+    /// </remarks>
+    private const double CustomInterval = 0.1;
+
     private readonly Random _random;
     private readonly float[] _values = new float[BrushInputs.Count];
 
@@ -43,6 +54,7 @@ public sealed class BrushInputTracker
     private double _slowSpeed1, _slowSpeed2;
     private double _directionX, _directionY;
     private double _stroke;
+    private double _custom;
 
     public BrushInputTracker(int? seed = null)
     {
@@ -60,6 +72,7 @@ public sealed class BrushInputTracker
         _slowSpeed1 = _slowSpeed2 = 0;
         _directionX = _directionY = 0;
         _stroke = 0;
+        _custom = 0;
         UsedNominalTime = false;
 
         // From rest rather than from zero. A spacing query can arrive before the first dab, and
@@ -149,7 +162,18 @@ public sealed class BrushInputTracker
         _values[(int)BrushInput.TiltAscension] = (float)(Mod(orientation.Azimuth + 180.0, 360.0) - 180.0);
         _values[(int)BrushInput.BarrelRotation] = (float)Mod(orientation.Twist, 360.0);
 
-        return new BrushInputs(_values);
+        _values[(int)BrushInput.Custom] = (float)_custom;
+        var inputs = new BrushInputs(_values);
+
+        // Advanced after the dab has read it, which is the order libmypaint updates them in: the
+        // setting that feeds this input can be driven by the very inputs just filled in above, so
+        // a dab sees the value as of the dab before it. Reading it forward instead would be a
+        // brush that responds to pressure one dab sooner than its author tuned it to.
+        double target = brush[MyPaintSetting.CustomInput].ValueFor(inputs);
+        _custom += (target - _custom)
+                 * Decay(Base(brush, MyPaintSetting.CustomInputSlowness), CustomInterval);
+
+        return inputs;
     }
 
     /// <summary>
