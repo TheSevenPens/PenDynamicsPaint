@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # This repository does not build alone. It has ProjectReferences into the sibling
+      # WinPenKit checkout, so both have to be laid out as siblings exactly as they are on a
+      # development machine.
+      - uses: actions/checkout@v4
+        with:
+          path: PenDynamicsPaint
+
+      # Tracks WinPenKit's main rather than pinning a ref, the same way PenDynamicsLab does.
+      # A breaking change there surfaces here, which is the honest reflection of the coupling:
+      # a green build against a stale pin would be worth less than it looks.
+      - uses: actions/checkout@v4
+        with:
+          repository: TheSevenPens/WinPenKit
+          path: WinPenKit
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Build
+        working-directory: PenDynamicsPaint
+        run: dotnet build PenDynamicsPaint.slnx -c Release
+
+      - name: Test
+        working-directory: PenDynamicsPaint
+        run: dotnet test PenDynamicsPaint.slnx -c Release --no-build
+
+      # No self-test step. PenDynamicsLab has one because its checks are about the drawing
+      # surface and the coordinate conversion, which are exactly what it exists to pin down.
+      # The equivalent here would be about a document and a viewport, and the viewport mapping
+      # is already covered by tests that need no window at all. When something here does need
+      # a window to verify, this is where it goes.

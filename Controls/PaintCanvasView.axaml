@@ -1,0 +1,57 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PenDynamicsPaint.Controls.PaintCanvasView">
+    <DockPanel>
+        <!-- View state, not document state. Zoom and pan belong to the window you are looking
+             through, so they sit on the viewport rather than in the left settings pane. -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource Pdl.Surface}"
+                BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,0,0,1" Padding="16,0">
+            <DockPanel Height="40">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6"
+                            VerticalAlignment="Center">
+                    <Button x:Name="ZoomOutButton" Content="&#xE71F;" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                            FontSize="12" Width="28" Height="28" Padding="0" Click="ZoomOut_Click"
+                            ToolTip.Tip="Zoom out" />
+                    <Button x:Name="ZoomResetButton" Content="100%" Width="56" Height="28" Padding="0"
+                            FontSize="12" Click="ZoomReset_Click" ToolTip.Tip="Actual size" />
+                    <Button x:Name="ZoomInButton" Content="&#xE710;" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                            FontSize="12" Width="28" Height="28" Padding="0" Click="ZoomIn_Click"
+                            ToolTip.Tip="Zoom in" />
+                    <Button x:Name="FitButton" Content="Fit" Width="44" Height="28" Padding="0"
+                            FontSize="12" Click="Fit_Click" ToolTip.Tip="Fit the document in the view" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Border Background="{DynamicResource Pdl.ActiveFill}" CornerRadius="4" Padding="8,3">
+                        <TextBlock x:Name="ZoomLabel" FontSize="12"
+                                   Foreground="{DynamicResource Pdl.SubtleText}" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock x:Name="DocLabel" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Pdl.Hint}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- The viewport. Unlike the stroke tabs this Border is not the canvas: it is a window
+             onto a document that has its own size, and the Image below shows whatever region of
+             it the viewport is currently over. -->
+        <Border x:Name="ViewportHost" Background="{DynamicResource Pdl.Pane}" ClipToBounds="True"
+                Cursor="Cross">
+            <Border.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Fit to view" Click="Fit_Click" />
+                    <MenuItem Header="Actual size" Click="ZoomReset_Click" />
+                    <Separator />
+                    <MenuItem Header="Undo last stroke" Click="Undo_Click" />
+                    <MenuItem Header="Clear document" Click="Clear_Click" />
+                </ContextMenu>
+            </Border.ContextMenu>
+            <Canvas>
+                <!-- Same pinning and Stretch=Fill identity mapping the stroke canvases use: the
+                     bitmap is in physical pixels and its DIP size is pixels / render scaling, so
+                     Fill is 1:1 rather than a resample. -->
+                <Image x:Name="ViewportImage" Stretch="Fill" Canvas.Left="0" Canvas.Top="0" />
+            </Canvas>
+        </Border>
+    </DockPanel>
+</UserControl>

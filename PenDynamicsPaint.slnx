@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="PenDynamicsPaint.csproj" />
+  <Project Path="PenDynamicsPaint.Tests/PenDynamicsPaint.Tests.csproj" />
+</Solution>

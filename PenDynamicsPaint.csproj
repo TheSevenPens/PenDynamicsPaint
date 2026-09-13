@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>14</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>PenDynamicsPaint</RootNamespace>
+    <AssemblyName>PenDynamicsPaint</AssemblyName>
+    <!-- Every item named explicitly below. Avalonia globs its XAML only when
+         EnableDefaultItems is true, and the SDK's own Compile glob is already replaced here,
+         so leaving the two half on was the worst of both: the build succeeded, the assembly
+         carried no compiled XAML, and the application died at startup with "No precompiled
+         XAML found for PenDynamicsPaint.App", which points nowhere near the cause. -->
+    <EnableDefaultItems>false</EnableDefaultItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="bin\**;obj\**;PenDynamicsPaint.Tests\**" />
+
+    <!-- Named, with Avalonia's default glob turned off above so the two cannot collide.
+         Left to the default the XAML compiler did not run at all here: the build succeeded, the
+         assembly carried no compiled XAML, and the application died at startup with "No
+         precompiled XAML found for PenDynamicsPaint.App", which is a long way from the cause. -->
+    <AvaloniaXaml Include="**\*.axaml" Exclude="bin\**;obj\**;PenDynamicsPaint.Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Avalonia.Win32 + Avalonia.Skia rather than the Avalonia.Desktop metapackage, which
+         also pulls the X11, FreeDesktop and macOS backends this Windows-only app can never
+         load. Avalonia.Win32 does not depend on Avalonia.Skia, so both are named. -->
+    <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Win32" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Skia" Version="$(AvaloniaVersion)" />
+    <!-- Avalonia 12 split text shaping out of Skia. UsePlatformDetect registers HarfBuzz;
+         naming backends does not, and the app throws "No text shaping system configured"
+         on startup without it. -->
+    <PackageReference Include="Avalonia.HarfBuzz" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="SkiaSharp" Version="$(SkiaSharpVersion)" />
+  </ItemGroup>
+
+  <!-- The pen stack, from the sibling checkout, exactly as PenDynamicsLab takes it. This
+       application is about what happens after a pen point arrives; getting one is WinPenKit's
+       job and there is no reason to have two answers to it. -->
+  <ItemGroup>
+    <ProjectReference Include="..\WinPenKit\WinPenKit\WinPenKit.csproj" />
+    <ProjectReference Include="..\WinPenKit\WinPenKit.Avalonia\WinPenKit.Avalonia.csproj" />
+  </ItemGroup>
+
+</Project>

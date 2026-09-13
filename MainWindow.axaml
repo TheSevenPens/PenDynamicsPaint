@@ -1,0 +1,48 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:PenDynamicsPaint.Controls"
+        x:Class="PenDynamicsPaint.MainWindow"
+        Title="PenDynamicsPaint"
+        Width="1400" Height="900"
+        Background="{DynamicResource Pdl.Pane}">
+
+    <DockPanel>
+        <!-- One bar, and only what a mark needs. The pen API belongs here for now because
+             choosing it is still a real part of using this; brush settings belong to a brush
+             and will move there when brushes exist. -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource Pdl.Surface}"
+                BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,0,0,1"
+                Padding="16,0">
+            <StackPanel Orientation="Horizontal" Spacing="24" Height="56" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Pen" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.Hint}" />
+                    <ComboBox x:Name="ApiCombo" Width="160" Height="32" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Size" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.Hint}" />
+                    <Slider x:Name="SizeSlider" Width="140" Minimum="1" Maximum="200" Value="24"
+                            VerticalAlignment="Center" />
+                    <TextBlock x:Name="SizeLabel" Width="56" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.SubtleText}" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Pressure" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.Hint}" />
+                    <ComboBox x:Name="DrivesCombo" Width="110" Height="32" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <Border Background="{DynamicResource Pdl.ActiveFill}" CornerRadius="4" Padding="8,3"
+                        VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusLabel" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Pdl.SubtleText}" />
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <controls:PaintCanvasView x:Name="PaintView" />
+    </DockPanel>
+</Window>

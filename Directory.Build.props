@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    One Avalonia version for the repo.
+
+    This app names its backends rather than taking the Avalonia.Desktop metapackage, which
+    drops the X11, FreeDesktop and macOS subtrees it can never load. The cost of hand-picking
+    is that the version appears in several places, so it lives here instead of being repeated
+    as a literal in each project file.
+
+    Bumping Avalonia without bumping a backend is the failure this prevents. The nuspec
+    constraints are minimums, so a mixed set resolves quietly: core 11.4 against an 11.3
+    backend satisfies ">= 12.1.2" and nothing warns.
+
+    Keep in step with the same property in the WinPenKit repo next door.
+  -->
+  <PropertyGroup>
+    <AvaloniaVersion>12.1.2</AvaloniaVersion>
+
+    <!--
+      Avalonia.Skia 12.1.2 requires SkiaSharp >= 3.119.4, so this moves with it. 3.119.4 is
+      the last 3.x; 4.x is a separate major and a separate decision. Keep in step with the
+      same property in the WinPenKit repo next door.
+    -->
+    <SkiaSharpVersion>3.119.4</SkiaSharpVersion>
+  </PropertyGroup>
+
+</Project>
