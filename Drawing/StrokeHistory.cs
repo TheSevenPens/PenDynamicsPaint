@@ -4,7 +4,7 @@ using SkiaSharp;
 namespace PenDynamicsPaint.Drawing;
 
 /// <summary>
-/// The strokes drawn so far, in order, and the parameter generation they were drawn under.
+/// The strokes drawn so far, in order, each with the brush and layer it was made with.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,11 +19,16 @@ namespace PenDynamicsPaint.Drawing;
 /// layer is not recorded here and cannot be stepped back through.
 /// </para>
 /// <para>
-/// <b>Input is authoritative; the pipeline output on each sample is a cache.</b> That is the
-/// decision this type exists to make real. Replaying a stroke whose
-/// <see cref="Stroke.ParamsVersion"/> still matches <see cref="ParamsVersion"/> can use the cached
-/// values; a stroke from an older generation has to be re-run from its raw pressures, or the
-/// canvas would show two curve generations at once with nothing to say which is which.
+/// <b>Input is authoritative; what the brush made of it is a cache.</b> Each sample keeps the
+/// pressure the pen reported as well as the value the brush's curve produced, so the reading stays
+/// recoverable.
+/// </para>
+/// <para>
+/// The cache cannot go stale, because a stroke keeps the brush that drew it. This used to need a
+/// generation counter -- there was one global curve, so editing it invalidated every cached output
+/// and a stroke had to record which generation it belonged to. With the curve on the brush there is
+/// nothing global left to change: editing a brush produces a different brush, and the strokes
+/// already drawn keep theirs.
 /// </para>
 /// </remarks>
 public sealed class StrokeHistory
@@ -51,9 +56,6 @@ public sealed class StrokeHistory
     private Stroke? _current;
     private int _totalSamples;
 
-    /// <summary>The current parameter generation. Bumped whenever the curve params change.</summary>
-    public int ParamsVersion { get; private set; }
-
     /// <summary>Completed strokes, oldest first.</summary>
     public IReadOnlyList<Stroke> Strokes => _strokes;
 
@@ -63,23 +65,13 @@ public sealed class StrokeHistory
     /// <summary>Samples held across all completed strokes.</summary>
     public int TotalSamples => _totalSamples;
 
-    /// <summary>
-    /// Note that the curve parameters have changed, invalidating every cached output.
-    /// </summary>
-    /// <remarks>
-    /// Cheap and unconditional — it does not walk the strokes. Staleness is discovered per stroke
-    /// at replay time by comparing versions, so changing a curve a hundred times costs a hundred
-    /// increments rather than a hundred passes over the history.
-    /// </remarks>
-    public void NoteParamsChanged() => ParamsVersion++;
-
     /// <summary>Begin recording a stroke under the state currently in force.</summary>
     /// <param name="layerId">
     /// Which layer the stroke is going onto, as <c>Layer.Id</c>. Defaulted so a caller exercising
     /// the history on its own need not invent one; the paint session always passes a real id.
     /// </param>
     public void BeginStroke(BrushSettings brush, SKColor color, int layerId = 0)
-        => _current = new Stroke(brush, color, ParamsVersion, layerId);
+        => _current = new Stroke(brush, color, layerId);
 
     /// <summary>Record one sample into the stroke in progress, if there is one.</summary>
     /// <param name="timestampMicroseconds">

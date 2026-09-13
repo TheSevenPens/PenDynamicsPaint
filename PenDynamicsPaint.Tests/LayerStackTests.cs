@@ -30,7 +30,7 @@ public class LayerStackTests
         s.SetStrokeColor(color);
         var brush = BrushSettings.Default with { Size = size, PressureDrives = PressureControl.Size };
 
-        for (double x = 20; x <= 220; x += 2) s.AddSample(x, y, 1.0, 1.0, brush);
+        for (double x = 20; x <= 220; x += 2) s.AddSample(x, y, 1.0, brush);
         s.EndStroke();
     }
 
@@ -216,13 +216,13 @@ public class LayerStackTests
 
         var brush = BrushSettings.Default with { Size = 30, PressureDrives = PressureControl.Size };
         session.SetStrokeColor(Red);
-        for (double x = 20; x <= 120; x += 2) session.AddSample(x, 100, 1.0, 1.0, brush);
+        for (double x = 20; x <= 120; x += 2) session.AddSample(x, 100, 1.0, brush);
 
         Assert.True(session.SetActiveLayer(0));
         Assert.Single(session.History.Strokes);
 
         // The rest of the gesture is a new stroke, on the layer it started on.
-        for (double x = 122; x <= 220; x += 2) session.AddSample(x, 100, 1.0, 1.0, brush);
+        for (double x = 122; x <= 220; x += 2) session.AddSample(x, 100, 1.0, brush);
         session.EndStroke();
 
         Assert.Equal(2, session.History.Strokes.Count);

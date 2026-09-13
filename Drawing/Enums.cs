@@ -73,11 +73,36 @@ public enum StrokeCompositing
 }
 
 /// <summary>Which property of the mark the pressure signal drives.</summary>
+/// <remarks>
+/// A single choice rather than a weight per target, which is the shape a general dynamics system
+/// has -- libmypaint maps nine inputs onto a dozen outputs, each through its own curve. This is the
+/// part of that worth having before the rest exists, and <see cref="Both"/> is here because an
+/// exclusive choice cannot express an ordinary soft brush.
+/// </remarks>
 public enum PressureControl
 {
-    /// <summary>Pressure sets stroke width; opacity stays at 1.</summary>
+    /// <summary>Pressure sets stroke width; opacity stays at the brush's own.</summary>
     Size,
 
     /// <summary>Pressure sets opacity; stroke width stays at the brush size.</summary>
     Opacity,
+
+    /// <summary>Pressure sets both, which is what most real brushes do.</summary>
+    Both,
+}
+
+/// <summary>Which engine lays down a brush's marks.</summary>
+/// <remarks>
+/// A choice on the brush rather than on the application, and named rather than held as an engine
+/// instance, because <b>a stroke has to be able to record it</b>. An engine holds a paint, a path
+/// and per-stroke accumulators; a stroke keeping one would be keeping a live object to describe
+/// something already finished. The session maps the name back to an instance.
+/// </remarks>
+public enum BrushEngineKind
+{
+    /// <summary>An antialiased taper swept between the two round ends of each segment.</summary>
+    Taper,
+
+    /// <summary>Round marks stamped along the path at a distance interval.</summary>
+    Dabs,
 }

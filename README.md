@@ -29,6 +29,8 @@ So the two are apart. The Lab keeps the pipeline honest; this builds on top of i
 - pen positions mapped into document coordinates, with the mapping read live so a pan or zoom
   part way through a stroke reaches the very next sample
 - **layers**: add, delete, reorder, hide, set opacity, merge down
+- **brushes**: a library of them, each carrying its own engine, size, spacing, opacity, pressure
+  target and pressure curve
 - **two brush engines**: an antialiased taper swept between two round ends, and round dabs stamped
   at a distance interval
 - **two ways of compositing a stroke**: Wash, where the stroke composites into a layer of its own
@@ -47,6 +49,29 @@ same drawn slowly as drawn quickly.
 
 Spacing is a fraction of the mark's own diameter, so pressure drives size and spacing together.
 
+### Brushes
+
+A brush is a record, and a stroke keeps a copy of the one that drew it. That is what makes an undo
+faithful: replay uses the engine, size, spacing and curve the stroke was actually made with rather
+than whatever is selected now. The engine is named on the brush rather than held as an instance,
+because a stroke has to be able to record it.
+
+The pressure curve is three numbers -- a range and an exponent:
+
+```
+t = clamp((pressure - Start) / (End - Start), 0, 1)
+output = pow(t, Exponent)
+```
+
+`Start` removes the dead weight at the bottom of a tablet's range, `End` lets the brush saturate
+without bottoming the nib out, and `Exponent` decides whether it comes on early or holds light
+until you lean on it. An arbitrary spline is the general case and is not here; it belongs with the
+rest of the dynamics work, where nine inputs are mapped this way rather than one.
+
+Editing a brush changes what you draw next, not what is already on the canvas.
+
+Brushes are not saved. The opening library is built in code and lives for the session.
+
 ### Layers
 
 The stack composites to a single bitmap, rebuilt only over the region that changed. A stroke in
@@ -60,6 +85,14 @@ since the merged pixels cannot be reproduced by replaying the two histories in t
 drawn.
 
 ## What is deliberately not here
+
+**No stroke smoothing.** It filters the incoming path rather than deciding what a mark looks like,
+so it belongs with the input pipeline rather than with the brush, and it is a real piece of work in
+its own right.
+
+**No general dynamics matrix.** Pressure drives size, opacity or both, through one curve. Tilt,
+speed, direction and randomness as inputs, each with its own curve onto each output, is what
+libmypaint brings.
 
 **No raw-versus-processed comparison.** That is the Lab's signature feature and it does not
 translate: with per-brush dynamics there is no single processed stream for a raw one to be compared

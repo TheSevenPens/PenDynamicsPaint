@@ -28,14 +28,14 @@ public readonly record struct PenOrientation(
 /// <remarks>
 /// <para>
 /// <b><see cref="RawPressure"/> and <see cref="Orientation"/> are authoritative.</b> They are what
-/// the pen actually did, and re-running them through a changed curve is the point of recording
-/// strokes at all.
+/// the pen actually did, and keeping them is what makes a recorded stroke worth more than the
+/// pixels it left.
 /// </para>
 /// <para>
-/// <b><see cref="ProcessedPressure"/> is a cache.</b> It is only valid for the
-/// <c>PressureCurveParams</c> that produced it — see <see cref="Stroke.ParamsVersion"/>. Width and
-/// opacity are deliberately not stored: they follow from this value and the stroke's brush by
-/// arithmetic, so keeping them would be a second cache to invalidate for no gain.
+/// <b><see cref="ProcessedPressure"/> is what the brush made of it</b>, through
+/// <see cref="BrushSettings.Process"/>. It cannot disagree with the brush, since the stroke keeps
+/// the brush too. Width and opacity are deliberately not stored: they follow from this value and
+/// that brush by arithmetic, so keeping them would be a second copy to keep in step for no gain.
 /// </para>
 /// </remarks>
 /// <param name="Position">Canvas-local position in DIPs.</param>
@@ -81,11 +81,10 @@ public sealed class Stroke
 {
     private readonly List<StrokeSample> _samples = [];
 
-    public Stroke(BrushSettings brush, SKColor color, int paramsVersion, int layerId = 0)
+    public Stroke(BrushSettings brush, SKColor color, int layerId = 0)
     {
         Brush = brush;
         Color = color;
-        ParamsVersion = paramsVersion;
         LayerId = layerId;
     }
 
@@ -108,44 +107,20 @@ public sealed class Stroke
     /// </remarks>
     public int LayerId { get; }
 
-    /// <summary>The brush configuration in force when this stroke was drawn.</summary>
+    /// <summary>
+    /// The brush that drew this stroke, in full.
+    /// </summary>
+    /// <remarks>
+    /// Engine, size, spacing, opacity, pressure target and curve, all of it. A replay uses this
+    /// rather than whatever is selected now, which is what stops an undo redrawing older strokes in
+    /// a brush they were never made with.
+    /// </remarks>
     public BrushSettings Brush { get; }
 
     /// <summary>The resolved colour this stroke was drawn in.</summary>
     public SKColor Color { get; }
 
-    /// <summary>
-    /// Which generation of <c>PressureCurveParams</c> produced this stroke's cached
-    /// <see cref="StrokeSample.ProcessedPressure"/> values.
-    /// </summary>
-    /// <remarks>
-    /// Compared against the history's current version to decide whether the cache can be trusted.
-    /// Recorded from day one even though the first implementation mostly hits the valid case:
-    /// adding it once strokes exist without one is the awkward migration this avoids.
-    /// </remarks>
-    public int ParamsVersion { get; private set; }
-
     public IReadOnlyList<StrokeSample> Samples => _samples;
 
     public void Add(StrokeSample sample) => _samples.Add(sample);
-
-    /// <summary>
-    /// Replace the cached pipeline outputs with ones computed under <paramref name="version"/>.
-    /// </summary>
-    /// <remarks>
-    /// Re-curving rewrites the cache rather than keeping a second view. Two generations of output
-    /// for one stroke would mean the canvas could show a mix, and nothing would say which.
-    /// </remarks>
-    public void RecacheOutputs(IReadOnlyList<double> processedPressures, int version)
-    {
-        if (processedPressures.Count != _samples.Count)
-            throw new ArgumentException(
-                $"expected {_samples.Count} values for this stroke, got {processedPressures.Count}",
-                nameof(processedPressures));
-
-        for (int i = 0; i < _samples.Count; i++)
-            _samples[i] = _samples[i] with { ProcessedPressure = processedPressures[i] };
-
-        ParamsVersion = version;
-    }
 }

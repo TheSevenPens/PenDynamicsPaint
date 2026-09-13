@@ -39,8 +39,22 @@ public partial class MainWindow : Window
     private IPenSession? _penSession;
     private IReadOnlyList<InputApi> _apis = [];
     private PaintSession _paint = null!;
-    private BrushSettings _brush = BrushSettings.Default with { Size = 24 };
     private bool _fitted;
+
+    /// <summary>The brushes on offer. Edited in place; nothing is written to disk.</summary>
+    private readonly List<BrushSettings> _brushes = [.. BrushLibrary.Defaults];
+
+    private int _brushIndex;
+
+    /// <summary>Guards the panel against reacting to its own repopulation.</summary>
+    /// <remarks>
+    /// Showing a brush sets every control, each of which raises the event that would edit it.
+    /// Without this, selecting a brush would overwrite it with the one previously shown.
+    /// </remarks>
+    private bool _syncingBrush;
+
+    /// <summary>The brush strokes are started with.</summary>
+    private BrushSettings Brush => _brushes[_brushIndex];
 
     public MainWindow()
     {
@@ -62,36 +76,14 @@ public partial class MainWindow : Window
             PaintView.Fit();
         };
 
-        SizeSlider.PropertyChanged += (_, e) =>
+        // The plot is drawn into a Canvas in its own coordinates, so it cannot be drawn until the
+        // Canvas has some. The first pass is where that happens.
+        CurvePlot.PropertyChanged += (_, e) =>
         {
-            if (e.Property.Name != "Value") return;
-            _brush = _brush with { Size = SizeSlider.Value };
-            SizeLabel.Text = $"{SizeSlider.Value:F0} px";
+            if (e.Property.Name == "Bounds") DrawCurve(Brush.Curve);
         };
-        SizeLabel.Text = $"{SizeSlider.Value:F0} px";
 
-        DrivesCombo.ItemsSource = new[] { "Size", "Opacity" };
-        DrivesCombo.SelectedIndex = 0;
-        DrivesCombo.SelectionChanged += (_, _) =>
-            _brush = _brush with
-            {
-                PressureDrives = DrivesCombo.SelectedIndex == 1
-                    ? PressureControl.Opacity
-                    : PressureControl.Size,
-            };
-
-        EngineCombo.ItemsSource = new[] { "Taper", "Dabs" };
-        EngineCombo.SelectedIndex = 0;
-        EngineCombo.SelectionChanged += (_, _) => ApplyEngine();
-
-        SpacingSlider.PropertyChanged += (_, e) =>
-        {
-            if (e.Property.Name != "Value") return;
-            if (_dabs is not null) _dabs.Spacing = SpacingSlider.Value;
-            SpacingLabel.Text = $"{SpacingSlider.Value:F2}";
-        };
-        SpacingLabel.Text = $"{SpacingSlider.Value:F2}";
-        SpacingPanel.IsVisible = false;
+        WireBrushPanel();
 
         LayerList.SelectionChanged += (_, _) =>
         {
@@ -273,30 +265,143 @@ public partial class MainWindow : Window
         PaintView.Invalidate();
     }
 
-    /// <summary>The dab engine, while it is the one in use. Kept so its spacing can be changed.</summary>
-    private DabBrushEngine? _dabs;
+    // -- The brush panel ------------------------------------------
 
-    /// <summary>Hand the session whichever engine the brush selector names.</summary>
+    /// <summary>
+    /// Every control edits the selected brush and nothing else.
+    /// </summary>
     /// <remarks>
-    /// A fresh instance each time rather than two kept side by side: the session takes ownership
-    /// and disposes what it replaces, and an engine holds a paint and a path that should not
-    /// outlive its use.
+    /// The pattern is the same throughout: read the control, write it back into
+    /// <c>_brushes[_brushIndex]</c>, and show the result. A record means an edit is a replacement,
+    /// so there is no partially updated brush for a stroke to start with.
     /// </remarks>
-    private void ApplyEngine()
+    private void WireBrushPanel()
     {
-        bool dabs = EngineCombo.SelectedIndex == 1;
-        SpacingPanel.IsVisible = dabs;
+        BrushCombo.ItemsSource = _brushes.Select(b => b.Name).ToList();
+        BrushCombo.SelectedIndex = 0;
+        BrushCombo.SelectionChanged += (_, _) =>
+        {
+            if (_syncingBrush || BrushCombo.SelectedIndex < 0) return;
+            _brushIndex = BrushCombo.SelectedIndex;
+            ShowBrush();
+        };
 
-        if (dabs)
+        EngineCombo.ItemsSource = new[] { "Taper", "Dabs" };
+        EngineCombo.SelectionChanged += (_, _) => EditBrush(b => b with
         {
-            _dabs = new DabBrushEngine { Spacing = SpacingSlider.Value };
-            _paint.UseEngine(_dabs);
-        }
-        else
+            Engine = EngineCombo.SelectedIndex == 1 ? BrushEngineKind.Dabs : BrushEngineKind.Taper,
+        });
+
+        DrivesCombo.ItemsSource = new[] { "Size", "Opacity", "Both" };
+        DrivesCombo.SelectionChanged += (_, _) => EditBrush(b => b with
         {
-            _dabs = null;
-            _paint.UseEngine(new RoundBrushEngine());
+            PressureDrives = (PressureControl)Math.Max(0, DrivesCombo.SelectedIndex),
+        });
+
+        OnSlider(SizeSlider, () => EditBrush(b => b with { Size = SizeSlider.Value }));
+        OnSlider(SpacingSlider, () => EditBrush(b => b with { Spacing = SpacingSlider.Value }));
+        OnSlider(BrushOpacitySlider,
+                 () => EditBrush(b => b with { Opacity = BrushOpacitySlider.Value / 100.0 }));
+
+        OnSlider(CurveStartSlider, () => EditBrush(b => b with
+        {
+            Curve = b.Curve with { Start = CurveStartSlider.Value },
+        }));
+        OnSlider(CurveEndSlider, () => EditBrush(b => b with
+        {
+            Curve = b.Curve with { End = CurveEndSlider.Value },
+        }));
+        OnSlider(CurveExponentSlider, () => EditBrush(b => b with
+        {
+            Curve = b.Curve with { Exponent = CurveExponentSlider.Value },
+        }));
+
+        ShowBrush();
+    }
+
+    private static void OnSlider(Slider slider, Action changed)
+        => slider.PropertyChanged += (_, e) =>
+        {
+            if (e.Property.Name == "Value") changed();
+        };
+
+    /// <summary>Apply one edit to the selected brush, then show what it became.</summary>
+    /// <remarks>
+    /// Showing it afterwards is not redundant: the record clamps what it is given, so a slider can
+    /// ask for a value the brush will not take and the panel has to end up displaying the brush
+    /// rather than the request.
+    /// </remarks>
+    private void EditBrush(Func<BrushSettings, BrushSettings> edit)
+    {
+        if (_syncingBrush) return;
+
+        _brushes[_brushIndex] = edit(_brushes[_brushIndex]);
+        ShowBrush();
+    }
+
+    /// <summary>Put every control in step with the selected brush.</summary>
+    private void ShowBrush()
+    {
+        _syncingBrush = true;
+
+        var b = Brush;
+        BrushCombo.SelectedIndex = _brushIndex;
+        EngineCombo.SelectedIndex = b.Engine == BrushEngineKind.Dabs ? 1 : 0;
+        DrivesCombo.SelectedIndex = (int)b.PressureDrives;
+
+        SizeSlider.Value = b.Size;
+        SizeLabel.Text = $"{b.Size:F0} px";
+
+        SpacingPanel.IsVisible = b.Engine == BrushEngineKind.Dabs;
+        SpacingSlider.Value = b.Spacing;
+        SpacingLabel.Text = $"{b.Spacing:F2}";
+
+        BrushOpacitySlider.Value = b.Opacity * 100;
+        BrushOpacityLabel.Text = $"{b.Opacity * 100:F0}%";
+
+        CurveStartSlider.Value = b.Curve.Start;
+        CurveStartLabel.Text = $"{b.Curve.Start:F2}";
+        CurveEndSlider.Value = b.Curve.End;
+        CurveEndLabel.Text = $"{b.Curve.End:F2}";
+        CurveExponentSlider.Value = b.Curve.Exponent;
+        CurveExponentLabel.Text = $"{b.Curve.Exponent:F2}";
+
+        _syncingBrush = false;
+
+        DrawCurve(b.Curve);
+    }
+
+    /// <summary>
+    /// Plot what the brush makes of the pen, across the pen's whole range.
+    /// </summary>
+    /// <remarks>
+    /// Sampled through <see cref="PressureCurve.Apply"/> rather than redrawn from the formula, so
+    /// the picture cannot disagree with the brush. The flat run at the left is the dead zone
+    /// <c>Start</c> removes and the flat run at the right is where <c>End</c> has saturated -- both
+    /// are the point of those two numbers and neither is obvious from a percentage.
+    /// </remarks>
+    private void DrawCurve(PressureCurve curve)
+    {
+        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
+        if (w <= 1 || h <= 1) return;   // before the first layout pass
+
+        const double pad = 6;
+        double plotW = w - 2 * pad, plotH = h - 2 * pad;
+
+        // Where a linear curve would run, for the shape to be read against.
+        CurveDiagonal.StartPoint = new Point(pad, h - pad);
+        CurveDiagonal.EndPoint = new Point(w - pad, pad);
+
+        var points = new List<Point>();
+        const int steps = 64;
+        for (int i = 0; i <= steps; i++)
+        {
+            double x = (double)i / steps;
+            double y = curve.Apply(x);
+            points.Add(new Point(pad + x * plotW, h - pad - y * plotH));
         }
+
+        CurveLine.Points = points;
     }
 
     private void PopulateApis()
@@ -396,9 +501,10 @@ public partial class MainWindow : Window
 
             double pressure = maxPressure > 0 ? (double)pt.Pressure / maxPressure : 0;
 
-            // Raw and processed are the same value here. There is no pipeline between the pen and
-            // the brush, and no raw comparison to make -- see the remarks on this class.
-            _paint.AddSample(docX, docY, pressure, pressure, _brush,
+            // What the pen reported, untouched. The brush's own curve is applied inside the
+            // session, which is what makes a stroke keep the response it was drawn with -- there is
+            // no application-wide pipeline here for it to have come from instead.
+            _paint.AddSample(docX, docY, pressure, Brush,
                 new PenOrientation(pt.Azimuth, pt.Altitude, pt.Twist, pt.TiltX, pt.TiltY),
                 pt.TimestampMicroseconds);
         }
