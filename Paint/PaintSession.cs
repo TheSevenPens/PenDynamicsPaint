@@ -29,7 +29,7 @@ public sealed class PaintSession : IDisposable
     /// <summary>The paper. Everything outside a mark stays this colour.</summary>
     private static readonly SKColor Paper = new(0xFF, 0xFF, 0xFF);
 
-    private readonly IBrushEngine _engine;
+    private IBrushEngine _engine;
     private SKBitmap _bitmap;
     private SKCanvas _canvas;
     private StrokeSample? _lastSample;
@@ -198,6 +198,35 @@ public sealed class PaintSession : IDisposable
 
     /// <summary>Set the colour subsequent strokes are drawn in.</summary>
     public void SetStrokeColor(SKColor color) => _strokeColor = color;
+
+    /// <summary>
+    /// Draw subsequent strokes with a different engine. The document is kept; the previous engine
+    /// is disposed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Any stroke in progress is ended first, since one already half drawn by a swept taper cannot
+    /// be finished by stamped dabs.
+    /// </para>
+    /// <para>
+    /// <b>A stroke does not record which engine drew it</b>, so an undo replays everything with
+    /// whichever engine is current. Switching engine and then undoing therefore redraws the older
+    /// strokes in the new engine's style. That is a real limitation rather than an oversight: it
+    /// waits on strokes carrying their own brush definition, which is where per-brush settings are
+    /// heading anyway.
+    /// </para>
+    /// </remarks>
+    public void UseEngine(IBrushEngine engine)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        if (ReferenceEquals(engine, _engine)) return;
+
+        EndStroke();
+
+        var old = _engine;
+        _engine = engine;
+        old.Dispose();
+    }
 
     /// <summary>
     /// Redraw one recorded stroke onto the document, through the same compositing it was drawn
