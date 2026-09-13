@@ -28,10 +28,36 @@ So the two are apart. The Lab keeps the pipeline honest; this builds on top of i
 - a document with a size of its own, behind a viewport with zoom and pan
 - pen positions mapped into document coordinates, with the mapping read live so a pan or zoom
   part way through a stroke reaches the very next sample
-- one brush engine: an antialiased taper between two round ends
+- **layers**: add, delete, reorder, hide, set opacity, merge down
+- **two brush engines**: an antialiased taper swept between two round ends, and round dabs stamped
+  at a distance interval
+- **two ways of compositing a stroke**: Wash, where the stroke composites into a layer of its own
+  and merges once, and Direct, where each mark composites as it is drawn
 - stroke history with undo
 
 Brush size is in **document units**, so a 40 unit brush covers 80 screen pixels at 200%.
+
+### Dab spacing
+
+Krita's isotropic rule, verified against `KDE/krita` at `1e6586cb`: with `s` the spacing wanted and
+`a` the distance carried since the last mark, the next mark falls `max(0.5, s) - a` further on, and
+the accumulator carries across pen samples. The property that buys is **segmentation invariance** --
+the same path puts marks in the same places however it was cut into segments, so a stroke looks the
+same drawn slowly as drawn quickly.
+
+Spacing is a fraction of the mark's own diameter, so pressure drives size and spacing together.
+
+### Layers
+
+The stack composites to a single bitmap, rebuilt only over the region that changed. A stroke in
+progress lives in a transient layer of the same type, composited **inside** its own layer's group
+so that the layer's opacity applies to the two together and anything above still covers it.
+
+Undo is chronological across the document -- the last stroke drawn goes, wherever it was drawn --
+and repaints only the layer that stroke belonged to. It steps through **strokes, not commands**:
+adding, deleting, reordering or merging a layer is not undoable, and a merge down is destructive,
+since the merged pixels cannot be reproduced by replaying the two histories in the order they were
+drawn.
 
 ## What is deliberately not here
 

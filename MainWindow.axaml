@@ -69,6 +69,54 @@
             </StackPanel>
         </Border>
 
+        <!-- Docked rather than floating: the stack is the document's structure, and it is read
+             far more often than it is changed. Top of the list is top of the stack, which is what
+             every paint application does; PaintSession.Layers is the other way round, because that
+             is composite order. The reversal lives here so it can be got wrong in one place. -->
+        <Border DockPanel.Dock="Right" Width="230" Background="{DynamicResource Pdl.Surface}"
+                BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1,0,0,0">
+            <DockPanel Margin="12">
+                <TextBlock DockPanel.Dock="Top" Text="Layers" FontSize="12" FontWeight="SemiBold"
+                           Margin="0,0,0,8" Foreground="{DynamicResource Pdl.GroupLabel}" />
+
+                <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,10,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button x:Name="AddLayerButton" Content="Add" FontSize="11" Padding="8,4"
+                                Click="AddLayer_Click" />
+                        <Button x:Name="DeleteLayerButton" Content="Delete" FontSize="11" Padding="8,4"
+                                Click="DeleteLayer_Click" />
+                        <Button x:Name="MergeLayerButton" Content="Merge down" FontSize="11" Padding="8,4"
+                                Click="MergeLayer_Click" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button x:Name="RaiseLayerButton" Content="Raise" FontSize="11" Padding="8,4"
+                                Click="RaiseLayer_Click" />
+                        <Button x:Name="LowerLayerButton" Content="Lower" FontSize="11" Padding="8,4"
+                                Click="LowerLayer_Click" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Name" FontSize="11" Foreground="{DynamicResource Pdl.Hint}" />
+                        <TextBox x:Name="LayerNameBox" FontSize="12" Height="28" Padding="6,2" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Opacity" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBlock x:Name="LayerOpacityLabel" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                        </StackPanel>
+                        <Slider x:Name="LayerOpacitySlider" Minimum="0" Maximum="100" Value="100" />
+                    </StackPanel>
+                </StackPanel>
+
+                <ListBox x:Name="LayerList" Background="Transparent"
+                         BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1" />
+            </DockPanel>
+        </Border>
+
         <controls:PaintCanvasView x:Name="PaintView" />
     </DockPanel>
 </Window>

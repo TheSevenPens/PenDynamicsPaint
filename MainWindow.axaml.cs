@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Threading;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
@@ -92,6 +93,32 @@ public partial class MainWindow : Window
         SpacingLabel.Text = $"{SpacingSlider.Value:F2}";
         SpacingPanel.IsVisible = false;
 
+        LayerList.SelectionChanged += (_, _) =>
+        {
+            if (_syncingLayers || LayerList.SelectedIndex < 0) return;
+            _paint.SetActiveLayer(ToStackIndex(LayerList.SelectedIndex));
+            ShowSelectedLayer();
+        };
+
+        LayerOpacitySlider.PropertyChanged += (_, e) =>
+        {
+            if (e.Property.Name != "Value") return;
+            LayerOpacityLabel.Text = $"{LayerOpacitySlider.Value:F0}%";
+            if (_syncingLayers) return;
+
+            _paint.SetLayerOpacity(_paint.ActiveLayerIndex, LayerOpacitySlider.Value / 100.0);
+            PaintView.Invalidate();
+        };
+
+        LayerNameBox.PropertyChanged += (_, e) =>
+        {
+            if (e.Property.Name != "Text" || _syncingLayers) return;
+            if (!_paint.RenameLayer(_paint.ActiveLayerIndex, LayerNameBox.Text ?? "")) return;
+            RefreshLayerRow(_paint.ActiveLayerIndex);
+        };
+
+        RebuildLayerList();
+
         CompositingCombo.ItemsSource = new[] { "Wash", "Direct" };
         CompositingCombo.SelectedIndex = 0;
         CompositingCombo.SelectionChanged += (_, _) =>
@@ -114,6 +141,136 @@ public partial class MainWindow : Window
             _penSession?.Dispose();
             _paint.Dispose();
         };
+    }
+
+    // -- Layers ---------------------------------------------------
+
+    /// <summary>Guards the panel against reacting to its own repopulation.</summary>
+    /// <remarks>
+    /// Rebuilding the list sets a selection, a checkbox and a slider, each of which raises the
+    /// event that would change the document. Without this, showing the stack would edit it.
+    /// </remarks>
+    private bool _syncingLayers;
+
+    /// <summary>The rows, top of the stack first, so index arithmetic stays in one place.</summary>
+    private readonly List<LayerRow> _layerRows = [];
+
+    /// <summary>One row of the panel: a visibility box and the layer's name.</summary>
+    private sealed record LayerRow(Control Root, CheckBox Visible, TextBlock Name);
+
+    /// <summary>Panel row to stack index. The panel shows the stack upside down.</summary>
+    private int ToStackIndex(int row) => _paint.Layers.Count - 1 - row;
+
+    /// <inheritdoc cref="ToStackIndex" />
+    private int ToRow(int stackIndex) => _paint.Layers.Count - 1 - stackIndex;
+
+    private void RebuildLayerList()
+    {
+        _syncingLayers = true;
+        _layerRows.Clear();
+
+        // Top of the stack first, which is the last element of Layers.
+        for (int stackIndex = _paint.Layers.Count - 1; stackIndex >= 0; stackIndex--)
+        {
+            int index = stackIndex;
+            var layer = _paint.Layers[index];
+
+            var visible = new CheckBox
+            {
+                IsChecked = layer.IsVisible,
+                VerticalAlignment = VerticalAlignment.Center,
+                MinWidth = 0,
+            };
+            visible.IsCheckedChanged += (_, _) =>
+            {
+                if (_syncingLayers) return;
+                _paint.SetLayerVisible(index, visible.IsChecked == true);
+                PaintView.Invalidate();
+            };
+
+            var name = new TextBlock
+            {
+                Text = layer.Name,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12,
+            };
+
+            var root = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children = { visible, name },
+            };
+
+            _layerRows.Add(new LayerRow(root, visible, name));
+        }
+
+        LayerList.ItemsSource = _layerRows.Select(r => r.Root).ToList();
+        LayerList.SelectedIndex = ToRow(_paint.ActiveLayerIndex);
+        _syncingLayers = false;
+
+        ShowSelectedLayer();
+    }
+
+    /// <summary>Put one row's name back in step, without rebuilding and losing the selection.</summary>
+    private void RefreshLayerRow(int stackIndex)
+    {
+        int row = ToRow(stackIndex);
+        if (row >= 0 && row < _layerRows.Count) _layerRows[row].Name.Text = _paint.Layers[stackIndex].Name;
+    }
+
+    /// <summary>Show the active layer's name and opacity, and enable what applies to it.</summary>
+    private void ShowSelectedLayer()
+    {
+        _syncingLayers = true;
+
+        var layer = _paint.ActiveLayer;
+        LayerNameBox.Text = layer.Name;
+        LayerOpacitySlider.Value = layer.Opacity * 100;
+        LayerOpacityLabel.Text = $"{layer.Opacity * 100:F0}%";
+
+        // Disabled rather than absent, so the panel does not change shape as the selection moves.
+        DeleteLayerButton.IsEnabled = _paint.Layers.Count > 1;
+        MergeLayerButton.IsEnabled = _paint.ActiveLayerIndex > 0;
+        RaiseLayerButton.IsEnabled = _paint.ActiveLayerIndex < _paint.Layers.Count - 1;
+        LowerLayerButton.IsEnabled = _paint.ActiveLayerIndex > 0;
+
+        _syncingLayers = false;
+    }
+
+    private void AddLayer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        _paint.AddLayer();
+        RebuildLayerList();
+        PaintView.Invalidate();
+    }
+
+    private void DeleteLayer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (!_paint.RemoveLayer(_paint.ActiveLayerIndex)) return;
+        RebuildLayerList();
+        PaintView.Invalidate();
+    }
+
+    private void MergeLayer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (!_paint.MergeDown(_paint.ActiveLayerIndex)) return;
+        RebuildLayerList();
+        PaintView.Invalidate();
+    }
+
+    private void RaiseLayer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => MoveActiveLayer(+1);
+
+    private void LowerLayer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => MoveActiveLayer(-1);
+
+    private void MoveActiveLayer(int by)
+    {
+        int from = _paint.ActiveLayerIndex;
+        if (!_paint.MoveLayer(from, from + by)) return;
+        RebuildLayerList();
+        PaintView.Invalidate();
     }
 
     /// <summary>The dab engine, while it is the one in use. Kept so its spacing can be changed.</summary>

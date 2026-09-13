@@ -148,17 +148,13 @@ public partial class PaintCanvasView : UserControl
 
         // Through an SKImage because that is the overload that takes sampling options. Only
         // built when a render actually happens, and renders only happen when something changed.
+        //
+        // One image, not two. A washed stroke used to be drawn separately over the document
+        // because it did not reach it until the pen lifted; now the session composites it inside
+        // its own layer, where it takes that layer's opacity and is covered by anything above it.
+        // Drawing it here instead would put every in-progress stroke on top of the stack.
         using (var image = SKImage.FromBitmap(session.Bitmap))
             _skCanvas.DrawImage(image, 0f, 0f, sampling);
-
-        // A washed stroke lives in a layer of its own until it ends, so without this it would
-        // appear only when the pen lifted. Drawn with ordinary source-over, which is what the
-        // merge will do to it: what is on screen mid-stroke is what will be on the document.
-        if (session.ActiveStrokeLayer is { } layer)
-        {
-            using var inProgress = SKImage.FromBitmap(layer);
-            _skCanvas.DrawImage(inProgress, 0f, 0f, sampling);
-        }
 
         using (var edge = new SKPaint
         {
