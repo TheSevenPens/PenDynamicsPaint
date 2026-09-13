@@ -201,18 +201,49 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         _paint.Shader = null;
     }
 
-    /// <summary>Dab alpha: the two opacity settings, multiplied.</summary>
+    /// <summary>Dab alpha: the two opacity settings, multiplied, then thinned for the pile-up.</summary>
     /// <remarks>
-    /// Two rather than one because a brush wants somewhere to put a fixed strength and somewhere
-    /// to attach pressure, and a single setting cannot hold both without one overwriting the
-    /// other. The convention in the brush files is that pressure goes on the multiplier.
+    /// <para>
+    /// Two opacity settings rather than one because a brush wants somewhere to put a fixed
+    /// strength and somewhere to attach pressure, and a single setting cannot hold both without
+    /// one overwriting the other. The convention in the brush files is that pressure goes on the
+    /// multiplier.
+    /// </para>
+    /// <para>
+    /// The thinning is <c>opaque_linearize</c>, ported from <c>prepare_and_draw_dab</c> in
+    /// <c>mypaint-brush.c</c> at <c>v1.6.1</c>. What the two settings state is the opacity the
+    /// <b>stroke</b> should reach, not the opacity of one dab, and a brush lays several dabs over
+    /// every pixel -- so each dab has to go down fainter or the stroke overshoots. The airbrush
+    /// asks for 52% opacity and lays 11.5 dabs per pixel; painted at 52% each, the stroke is solid
+    /// black after the third one.
+    /// </para>
+    /// <para>
+    /// <b>The default is 0.9, not 0.</b> So this applies to nearly every brush file, including the
+    /// ones that never mention the setting -- which is why leaving it out did not look like one
+    /// brush being wrong.
+    /// </para>
     /// </remarks>
     private static float Alpha(MyPaintBrush brush, in BrushInputs inputs)
     {
         float opaque = brush[MyPaintSetting.Opaque].ValueFor(inputs);
         float multiply = brush[MyPaintSetting.OpaqueMultiply].ValueFor(inputs);
 
-        return Math.Clamp(opaque, 0, 1) * Math.Clamp(multiply, 0, 1);
+        // Clamped separately, so that two negative values cannot multiply into a positive one.
+        float alpha = Math.Clamp(Math.Max(0, opaque) * multiply, 0, 1);
+
+        float linearize = brush[MyPaintSetting.OpaqueLinearize].BaseValue;
+        if (linearize == 0) return alpha;
+
+        float perPixel = (brush[MyPaintSetting.DabsPerActualRadius].ValueFor(inputs)
+                        + brush[MyPaintSetting.DabsPerBasicRadius].ValueFor(inputs)) * 2f;
+
+        // Dabs that do not overlap have nothing to correct for, and the setting scales how much
+        // of the correction to apply rather than switching it on and off.
+        perPixel = 1f + linearize * (Math.Max(1f, perPixel) - 1f);
+
+        // What survives one dab is the whole stroke's transmission spread over the pile:
+        // (1 - stroke) == (1 - dab)^perPixel.
+        return 1f - MathF.Pow(1f - alpha, 1f / perPixel);
     }
 
     /// <summary>

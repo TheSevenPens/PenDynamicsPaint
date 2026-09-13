@@ -27,6 +27,15 @@ public enum MyPaintSetting
     /// <summary>A second alpha, multiplied in. Usually where pressure is attached.</summary>
     OpaqueMultiply,
 
+    /// <summary>
+    /// How much to thin each dab so that a pile of them reaches the opacity asked for.
+    /// </summary>
+    /// <remarks>
+    /// 0 applies no correction and 1 applies it in full; the default is 0.9, so this is in force
+    /// for nearly every brush file whether or not it mentions it.
+    /// </remarks>
+    OpaqueLinearize,
+
     /// <summary>Where the dab stops being solid and starts fading, as a fraction of its radius.</summary>
     Hardness,
 
@@ -127,6 +136,7 @@ public sealed class MyPaintBrush
             [MyPaintSetting.RadiusLogarithmic] = 2.0f,
             [MyPaintSetting.Opaque] = 1.0f,
             [MyPaintSetting.OpaqueMultiply] = 0.0f,
+            [MyPaintSetting.OpaqueLinearize] = 0.9f,
             [MyPaintSetting.Hardness] = 0.8f,
             [MyPaintSetting.DabsPerBasicRadius] = 0.0f,
             [MyPaintSetting.DabsPerActualRadius] = 2.0f,
@@ -227,6 +237,7 @@ public sealed class MyPaintBrush
             ["radius_logarithmic"] = MyPaintSetting.RadiusLogarithmic,
             ["opaque"] = MyPaintSetting.Opaque,
             ["opaque_multiply"] = MyPaintSetting.OpaqueMultiply,
+            ["opaque_linearize"] = MyPaintSetting.OpaqueLinearize,
             ["hardness"] = MyPaintSetting.Hardness,
             ["dabs_per_basic_radius"] = MyPaintSetting.DabsPerBasicRadius,
             ["dabs_per_actual_radius"] = MyPaintSetting.DabsPerActualRadius,

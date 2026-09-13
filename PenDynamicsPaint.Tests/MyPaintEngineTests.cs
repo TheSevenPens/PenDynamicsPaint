@@ -337,6 +337,13 @@ public class MyPaintEngineTests
     /// <param name="perRadius">
     /// Dabs per radius of travel, so how thickly the dabs are laid over each other.
     /// </param>
+    /// <remarks>
+    /// <c>opaque_linearize</c> is switched off here, and that is worth saying rather than leaving
+    /// to be noticed: its default is 0.9, so a brush that never mentions it still gets it, and it
+    /// thins each dab by however many of them are piling up. That is exactly the quantity the
+    /// tests below vary, so leaving it on would have the engine cancelling out the thing being
+    /// measured. It has its own test.
+    /// </remarks>
     private static MyPaintBrush SoftDabs(double hardness, double perRadius, double opaque) =>
         MyPaintBrush.Parse($$"""
             {
@@ -345,6 +352,7 @@ public class MyPaintEngineTests
                 "radius_logarithmic": { "base_value": 2.1 },
                 "opaque": { "base_value": 1.0 },
                 "opaque_multiply": { "base_value": {{opaque}} },
+                "opaque_linearize": { "base_value": 0.0 },
                 "hardness": { "base_value": {{hardness}} },
                 "dabs_per_actual_radius": { "base_value": {{perRadius}} }
               }
@@ -451,6 +459,70 @@ public class MyPaintEngineTests
 
         Assert.True(Math.Abs(hard - nearlyHard) <= 5,
             $"the soft dab came out at {nearlyHard}/255 against {hard}/255 for the hard one");
+    }
+
+    /// <summary>A half-opaque brush of hard dabs, with the pile-up correction set as given.</summary>
+    private static MyPaintBrush HalfOpaque(double linearize, double perRadius) =>
+        MyPaintBrush.Parse($$"""
+            {
+              "version": 3,
+              "settings": {
+                "radius_logarithmic": { "base_value": 2.5 },
+                "opaque": { "base_value": 0.5 },
+                "opaque_multiply": { "base_value": 1.0 },
+                "opaque_linearize": { "base_value": {{linearize}} },
+                "hardness": { "base_value": 1.0 },
+                "dabs_per_actual_radius": { "base_value": {{perRadius}} }
+              }
+            }
+            """, "half");
+
+    /// <summary>The ink in the middle of a straight stroke, as 0 (black) to 255 (white).</summary>
+    private static int InkAtTheMiddle(MyPaintBrush brush)
+    {
+        using var session = new PaintSession(700, 300) { Compositing = StrokeCompositing.Wash };
+        var settings = Using(brush);
+        for (int i = 0; i < 90; i++) session.AddSample(40 + i * 6, 150, 0.7, settings);
+        session.EndStroke();
+        return session.Bitmap.GetPixel(350, 150).Red;
+    }
+
+    [Fact]
+    public void A_stroke_reaches_the_opacity_it_asked_for_however_many_dabs_it_took()
+    {
+        // opaque_linearize. The opacity settings state what the *stroke* should come to, not what
+        // one dab should, and a brush lays several dabs over every pixel -- so each dab has to go
+        // down fainter or the stroke overshoots. The airbrush asks for 52% and lays 11.5 dabs per
+        // pixel; at 52% each it is solid black by the third, which is how this was found.
+        //
+        // Hard dabs and a flat pressure, so the only thing between the setting and the pixel is
+        // the correction. Half-opaque black ink on white paper should come out near 128.
+        Assert.InRange(InkAtTheMiddle(HalfOpaque(linearize: 1.0, perRadius: 3.0)), 120, 165);
+
+        // And the same however thickly the dabs are laid, which is the whole point of it.
+        int sparse = InkAtTheMiddle(HalfOpaque(linearize: 1.0, perRadius: 1.5));
+        int dense = InkAtTheMiddle(HalfOpaque(linearize: 1.0, perRadius: 6.0));
+        Assert.True(Math.Abs(sparse - dense) < 20,
+            $"four times the dabs changed the stroke: {sparse}/255 against {dense}/255");
+
+        // Uncorrected, six dabs at half opacity each leave a fortieth of the paper showing. Far
+        // outside the window above, so none of this can pass by accident.
+        Assert.InRange(InkAtTheMiddle(HalfOpaque(linearize: 0.0, perRadius: 3.0)), 0, 45);
+    }
+
+    [Fact]
+    public void A_partial_pile_up_correction_is_measured_from_no_correction_at_all()
+    {
+        // The setting runs 0 to 1 and libmypaint interpolates the *pile* it corrects for, from 1
+        // dab at 0 to the real count at 1: dabs_per_pixel = 1 + linearize * (dabs_per_pixel - 1).
+        // Multiplying the count by the setting instead is the obvious misreading and agrees
+        // exactly at both ends, so a test that only ever sets 0 or 1 cannot tell them apart --
+        // which is what the first version of the test above did.
+        int ink = InkAtTheMiddle(HalfOpaque(linearize: 0.25, perRadius: 1.5));
+
+        // Interpolating gives a pile of 1.75 and lands near 85; scaling gives 0.75, less than no
+        // correction at all, and lands near 40.
+        Assert.InRange(ink, 70, 100);
     }
 
     [Fact]

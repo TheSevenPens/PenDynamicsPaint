@@ -178,8 +178,16 @@ Dabs fade by libmypaint's own profile: two straight lines in the *square* of the
 which is a curve in the radius and so is sampled into a gradient rather than handed over as two
 stops.
 
-**What reaches the mark:** radius, opacity, hardness, spacing, and the two random offsets. **What
-does not:** elliptical dabs, smudge, colour dynamics, tracking and the eraser. A brush file that
+**What reaches the mark:** radius, opacity, hardness, spacing, the pile-up correction, and the two
+random offsets. **What does not:** elliptical dabs, smudge, colour dynamics, tracking, the custom
+input, and the eraser.
+
+The pile-up correction is `opaque_linearize`, and it is worth calling out because its default is
+0.9 rather than 0 -- so it applies to nearly every brush file whether or not the file mentions it.
+What the opacity settings state is the opacity the *stroke* should reach, not the opacity of one
+dab, and a brush lays several dabs over every pixel; without the correction the stroke overshoots
+by that pile. The airbrush asks for 52% and lays 11.5 dabs per pixel, so it arrived as a solid
+black slab with no pressure response until this was put in. A brush file that
 leans on any of those still loads, and the panel says how many settings went unused rather than
 letting the shortfall pass unnoticed.
 
