@@ -81,12 +81,32 @@ public sealed class Stroke
 {
     private readonly List<StrokeSample> _samples = [];
 
-    public Stroke(BrushSettings brush, SKColor color, int paramsVersion)
+    public Stroke(BrushSettings brush, SKColor color, int paramsVersion, int layerId = 0)
     {
         Brush = brush;
         Color = color;
         ParamsVersion = paramsVersion;
+        LayerId = layerId;
     }
+
+    /// <summary>
+    /// Which layer this stroke was drawn on, as <c>Layer.Id</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Undo works by clearing one layer and replaying the strokes that belong to it, so a stroke
+    /// that did not say where it went would have to be replayed onto every layer or onto none.
+    /// </para>
+    /// <para>
+    /// The <b>id</b>, not the index: adding or removing a layer renumbers every index above it,
+    /// and strokes that recorded an index would quietly move to a different surface.
+    /// </para>
+    /// <para>
+    /// Zero when no layer was recorded, which is what a caller exercising the history on its own
+    /// gets. Nothing in the paint session leaves it unset.
+    /// </para>
+    /// </remarks>
+    public int LayerId { get; }
 
     /// <summary>The brush configuration in force when this stroke was drawn.</summary>
     public BrushSettings Brush { get; }

@@ -8,9 +8,15 @@ namespace PenDynamicsPaint.Drawing;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Deliberately <b>not</b> a document model. There are no layers, no tools, and no selection —
-/// just the list a stroke can be recorded into and replayed from, which is the minimum that makes
-/// undo possible without inventing history after the fact.
+/// Still not a document model: no tools, no selection, no commands -- just the list a stroke can be
+/// recorded into and replayed from, which is the minimum that makes undo possible without inventing
+/// history after the fact. It knows layers only as far as <see cref="Stroke.LayerId"/>, which says
+/// which surface to replay a stroke onto and nothing else. The stack itself is
+/// <c>PaintSession.Layers</c>.
+/// </para>
+/// <para>
+/// <b>Strokes are the unit of undo, not commands.</b> Adding, deleting, reordering or merging a
+/// layer is not recorded here and cannot be stepped back through.
 /// </para>
 /// <para>
 /// <b>Input is authoritative; the pipeline output on each sample is a cache.</b> That is the
@@ -68,8 +74,12 @@ public sealed class StrokeHistory
     public void NoteParamsChanged() => ParamsVersion++;
 
     /// <summary>Begin recording a stroke under the state currently in force.</summary>
-    public void BeginStroke(BrushSettings brush, SKColor color)
-        => _current = new Stroke(brush, color, ParamsVersion);
+    /// <param name="layerId">
+    /// Which layer the stroke is going onto, as <c>Layer.Id</c>. Defaulted so a caller exercising
+    /// the history on its own need not invent one; the paint session always passes a real id.
+    /// </param>
+    public void BeginStroke(BrushSettings brush, SKColor color, int layerId = 0)
+        => _current = new Stroke(brush, color, ParamsVersion, layerId);
 
     /// <summary>Record one sample into the stroke in progress, if there is one.</summary>
     /// <param name="timestampMicroseconds">
@@ -140,6 +150,28 @@ public sealed class StrokeHistory
         _totalSamples -= _strokes[^1].Samples.Count;
         _strokes.RemoveAt(_strokes.Count - 1);
         return true;
+    }
+
+    /// <summary>
+    /// Drop every stroke belonging to one layer, returning how many went.
+    /// </summary>
+    /// <remarks>
+    /// Called when a layer stops existing, by deletion or by being merged away. Leaving its strokes
+    /// behind would make undo appear broken rather than merely limited: the next undo would remove
+    /// a stroke whose pixels are already gone, so the user would press undo and watch nothing
+    /// happen.
+    /// </remarks>
+    public int RemoveForLayer(int layerId)
+    {
+        int removed = 0;
+        for (int i = _strokes.Count - 1; i >= 0; i--)
+        {
+            if (_strokes[i].LayerId != layerId) continue;
+            _totalSamples -= _strokes[i].Samples.Count;
+            _strokes.RemoveAt(i);
+            removed++;
+        }
+        return removed;
     }
 
     /// <summary>Forget everything, including any stroke in progress.</summary>
