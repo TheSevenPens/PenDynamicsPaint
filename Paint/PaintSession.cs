@@ -690,6 +690,15 @@ public sealed class PaintSession : IDisposable
     }
 
     /// <summary>Set the colour subsequent strokes are drawn in.</summary>
+    /// <summary>The colour the next stroke will be drawn in.</summary>
+    /// <remarks>
+    /// Readable so that a test can ask what the application actually chose. Nothing in the
+    /// application called <see cref="SetStrokeColor"/> at all until late on, and every mark ever
+    /// made came out the same dark navy -- a fault no test could see, because a test sets the
+    /// colour itself and never asks the window what it would have used.
+    /// </remarks>
+    public SKColor StrokeColor => _strokeColor;
+
     public void SetStrokeColor(SKColor color) => _strokeColor = color;
 
     /// <summary>

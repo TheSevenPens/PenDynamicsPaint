@@ -19,6 +19,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The window tests drive a real MainWindow and ask the session what it was told to do.
+         Nothing else is opened up: the seam is one property. -->
+    <InternalsVisibleTo Include="PenDynamicsPaint.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="**\*.cs" Exclude="bin\**;obj\**;PenDynamicsPaint.Tests\**" />
 
     <!-- Named, with Avalonia's default glob turned off above so the two cannot collide.

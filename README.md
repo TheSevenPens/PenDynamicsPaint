@@ -420,3 +420,19 @@ The viewport mapping is held down by tests rather than by drawing and looking, b
 error of half a pixel is invisible on screen and ruinous in a recording. Two properties in
 particular: zoom moves the view and never the ink, and a pan mid-stroke shifts the document under
 the pen by exactly the pan.
+
+**The window is tested too, headlessly.** `WindowTests` builds a real `MainWindow` with no desktop
+behind it and drives the controls on it -- presses a swatch, changes the picker, moves the
+compositing box -- then asks the drawing session what it was told. Everything else here builds a
+session directly and sets whatever brush and colour it likes, which leaves anything wrong *between*
+the window and the session invisible however many tests pass.
+
+That gap had already cost something. The smudge brush shipped looking exactly like an ordinary
+brush, because nothing in the application ever called `SetStrokeColor` and every mark ever made was
+the same dark navy: a brush that picks colour up off the canvas and lays it down again can only
+produce the colour everything else was drawn in. The engine was right and the feature was unusable.
+
+The window is built and never shown, since showing it starts a pen session against a real tablet
+stack. `Avalonia.Headless.XUnit` is deliberately not used: at this version it brings xunit v3, which
+cannot share an assembly with the xunit 2 everything else is written against. The session machinery
+underneath that adapter is used directly instead.
