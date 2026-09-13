@@ -110,6 +110,18 @@
                         </Grid>
                     </Border>
 
+                    <!-- What the ink does between two samples. Next to the engine because the two
+                         together decide the shape of a mark: one lays it down, the other says
+                         along what path. -->
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Path" />
+                            <ComboBox Grid.Column="1" x:Name="InterpolationCombo" Height="24"
+                                      FontSize="11" Padding="6,0" VerticalAlignment="Center"
+                                      HorizontalAlignment="Stretch" />
+                        </Grid>
+                    </Border>
+
                     <Border Classes="row">
                         <Grid ColumnDefinitions="58,*">
                             <TextBlock Grid.Column="0" Classes="name" Text="Pressure" />

@@ -86,6 +86,16 @@ public sealed class PaintSession : IDisposable
     /// </remarks>
     private readonly PathSmoother _smoother = new();
 
+    /// <summary>
+    /// Fits a curve through the filtered samples, used both live and on replay.
+    /// </summary>
+    /// <remarks>
+    /// Downstream of the filter: smoothing decides where the samples are, this decides the path
+    /// between them. Reset per stroke, like the filter, and deterministic for the same reason --
+    /// a replay has to land where the stroke did.
+    /// </remarks>
+    private readonly CurveFitter _fitter = new();
+
     /// <summary>The last position the filter produced, which is where ink actually went.</summary>
     private StrokeSample? _lastDrawn;
 
@@ -373,6 +383,7 @@ public sealed class PaintSession : IDisposable
             _strokeBrush = brush;
             _strokeEngine = EngineFor(brush);
             _smoother.Reset();
+            _fitter.Reset();
             History.BeginStroke(brush, _strokeColor, ActiveLayer.Id);
             BeginLayerIfWashing(_strokeEngine);
             _strokeEngine.BeginStroke();
@@ -387,18 +398,31 @@ public sealed class PaintSession : IDisposable
                                       timestampMicroseconds);
         History.AddSample(sample);
 
-        var drawn = Filter(sample, active);
-
-        if (_lastDrawn is { } from && (active.DrawAtZeroPressure || drawn.ProcessedPressure > 0))
-        {
-            var target = _layerActive ? _strokeLayer!.Canvas : ActiveLayer.Canvas;
-            _strokeEngine!.DrawSegment(target, from, drawn, active, _strokeColor,
-                                       PressureChannel.Processed);
-            MarkStale(SegmentBounds(from, drawn, active));
-        }
+        var target = _layerActive ? _strokeLayer!.Canvas : ActiveLayer.Canvas;
+        foreach (var point in _fitter.Next(Filter(sample, active), active.Interpolation))
+            DrawTo(target, point, active);
 
         _lastSample = sample;
-        _lastDrawn = drawn;
+    }
+
+    /// <summary>
+    /// Draw from wherever the ink last reached to one more point along the path.
+    /// </summary>
+    /// <remarks>
+    /// The one place a mark is made while a stroke is live. What arrives here has been through the
+    /// filter and the curve fitter, so it is a point on the painted path rather than a pen sample:
+    /// there may be many of them between two samples, or none at all.
+    /// </remarks>
+    private void DrawTo(SKCanvas target, in StrokeSample point, BrushSettings brush)
+    {
+        if (_lastDrawn is { } from && (brush.DrawAtZeroPressure || point.ProcessedPressure > 0))
+        {
+            _strokeEngine!.DrawSegment(target, from, point, brush, _strokeColor,
+                                       PressureChannel.Processed);
+            MarkStale(SegmentBounds(from, point, brush));
+        }
+
+        _lastDrawn = point;
     }
 
     /// <summary>
@@ -428,6 +452,16 @@ public sealed class PaintSession : IDisposable
     {
         if (_lastSample is null) return;   // guarded, so the engine's brackets stay in pairs
         _lastSample = null;
+
+        // The fitter holds the last segment back until it can see a tangent for it, so without
+        // this every curved stroke would stop one sample short of where the pen lifted.
+        if (_strokeBrush is { } finishing && _strokeEngine is not null)
+        {
+            var target = _layerActive ? _strokeLayer!.Canvas : ActiveLayer.Canvas;
+            foreach (var point in _fitter.Flush(finishing.Interpolation))
+                DrawTo(target, point, finishing);
+        }
+
         _strokeEngine?.EndStroke();
         History.EndStroke();
         MergeStrokeLayer(_strokeEngine);
@@ -644,27 +678,33 @@ public sealed class PaintSession : IDisposable
         BeginLayerIfWashing(engine);
         engine.BeginStroke();
         _smoother.Reset();
+        _fitter.Reset();
 
         var target = _layerActive ? _strokeLayer!.Canvas : layer.Canvas;
-        var samples = stroke.Samples;
 
-        // Filtered again from the raw samples, through this stroke's own brush. Deterministic, so
-        // it lands exactly where it did the first time; filtering with whatever is selected now
-        // would move ink that is already on the canvas.
+        // Filtered and fitted again from the raw samples, through this stroke's own brush. Both
+        // stages are deterministic, so the ink lands exactly where it did the first time; running
+        // either with whatever is selected now would move ink already on the canvas.
         StrokeSample? previous = null;
-        for (int i = 0; i < samples.Count; i++)
-        {
-            var drawn = Filter(samples[i], stroke.Brush);
 
+        void Draw(StrokeSample point)
+        {
             if (previous is { } from &&
-                (stroke.Brush.DrawAtZeroPressure || drawn.ProcessedPressure > 0))
+                (stroke.Brush.DrawAtZeroPressure || point.ProcessedPressure > 0))
             {
-                engine.DrawSegment(target, from, drawn,
+                engine.DrawSegment(target, from, point,
                                    stroke.Brush, stroke.Color, PressureChannel.Processed);
             }
 
-            previous = drawn;
+            previous = point;
         }
+
+        foreach (var sample in stroke.Samples)
+            foreach (var point in _fitter.Next(Filter(sample, stroke.Brush),
+                                               stroke.Brush.Interpolation))
+                Draw(point);
+
+        foreach (var point in _fitter.Flush(stroke.Brush.Interpolation)) Draw(point);
 
         engine.EndStroke();
 

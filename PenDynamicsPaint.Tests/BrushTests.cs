@@ -475,6 +475,83 @@ public class BrushTests
     }
 
     [Fact]
+    public void A_curved_brush_fills_the_corners_a_straight_one_leaves()
+    {
+        // Sampled coarsely, as a tablet does on a fast stroke. The chord cuts inside the arc, so
+        // the curved version puts ink where the straight one leaves paper.
+        var corner = new List<(double X, double Y)>();
+        for (int i = 0; i < 9; i++)
+        {
+            double a = Math.PI * i / 16;
+            corner.Add((120 + 90 * Math.Cos(a), 30 + 90 * Math.Sin(a)));
+        }
+
+        int Ink(StrokeInterpolation how)
+        {
+            using var session = new PaintSession(260, 200);
+            var brush = Taper with { Size = 6, Interpolation = how };
+
+            foreach (var (x, y) in corner) session.AddSample(x, y, 1.0, brush);
+            session.EndStroke();
+
+            int ink = 0;
+            for (int y = 0; y < session.Height; y++)
+                for (int x = 0; x < session.Width; x++)
+                    if (session.Bitmap.GetPixel(x, y) != SKColors.White) ink++;
+            return ink;
+        }
+
+        int straight = Ink(StrokeInterpolation.Straight);
+        int curved = Ink(StrokeInterpolation.Curved);
+
+        Assert.True(straight > 1000, $"the stroke should cover ground, it covered {straight} px");
+        Assert.True(curved > straight,
+            $"the fitted path is the longer one: {curved} px against {straight} px");
+    }
+
+    [Fact]
+    public void A_curved_stroke_reaches_the_last_sample()
+    {
+        // The fitter is one sample behind, so without a flush at the end of the stroke the ink
+        // would stop short of where the pen lifted.
+        using var session = new PaintSession(300, 200);
+        var brush = Taper with { Size = 8, Interpolation = StrokeInterpolation.Curved };
+
+        for (double x = 20; x <= 260; x += 30) session.AddSample(x, 100, 1.0, brush);
+        session.EndStroke();
+
+        Assert.NotEqual(SKColors.White, session.Bitmap.GetPixel(258, 100));
+    }
+
+    [Fact]
+    public void An_undo_replays_a_stroke_with_the_interpolation_it_was_drawn_under()
+    {
+        // Carried on the brush like everything else, so a replay refits rather than joining the
+        // samples up straight.
+        using var session = new PaintSession(300, 220);
+
+        var curved = Taper with { Size = 8, Interpolation = StrokeInterpolation.Curved };
+        for (int i = 0; i < 9; i++)
+        {
+            double a = Math.PI * i / 16;
+            session.AddSample(120 + 90 * Math.Cos(a), 30 + 90 * Math.Sin(a), 1.0, curved);
+        }
+        session.EndStroke();
+
+        using var before = session.Bitmap.Copy();
+
+        Stroke(session, Taper, 200);
+        Assert.True(session.Undo());
+
+        int changed = 0;
+        for (int y = 0; y < 180; y++)
+            for (int x = 0; x < session.Width; x++)
+                if (before.GetPixel(x, y) != session.Bitmap.GetPixel(x, y)) changed++;
+
+        Assert.Equal(0, changed);
+    }
+
+    [Fact]
     public void Every_brush_in_the_opening_library_puts_ink_down()
     {
         // The library is a starting set, not decoration: a preset that drew nothing -- a curve
