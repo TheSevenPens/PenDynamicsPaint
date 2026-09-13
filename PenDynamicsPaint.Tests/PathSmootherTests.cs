@@ -27,8 +27,11 @@ namespace PenDynamicsPaint.Tests;
 /// </remarks>
 public class PathSmootherTests
 {
-    private static readonly StrokeSmoothing Smoothing =
-        StrokeSmoothing.Default with { TailAggressiveness = 0 };
+    private static readonly StrokeSmoothing Smoothing = new()
+    {
+        Position = StrokeSmoothing.DefaultDistance,
+        TailAggressiveness = 0,
+    };
 
     /// <summary>Where the pen starts, and the line the wobble runs along.</summary>
     private const double OriginX = 20, Baseline = 100;
@@ -178,8 +181,8 @@ public class PathSmootherTests
         // it further behind. This is the cost of smoothing, and it is worth being able to see.
         var path = Wobble(2.0, 800, amplitude: 3, wavelength: 7);
 
-        double near = SettledLag(path, Smoothing with { Distance = 20 });
-        double far = SettledLag(path, Smoothing with { Distance = 120 });
+        double near = SettledLag(path, Smoothing with { Position = 20 });
+        double far = SettledLag(path, Smoothing with { Position = 120 });
 
         Assert.True(far > near * 2, $"20 units lagged {near:F2}, 120 units lagged {far:F2}");
     }
@@ -202,8 +205,8 @@ public class PathSmootherTests
     {
         var raw = Tremor(2.0);
 
-        double light = Amplitude(Smooth(raw, Smoothing with { Distance = 8 }), 2.0);
-        double heavy = Amplitude(Smooth(raw, Smoothing with { Distance = 80 }), 2.0);
+        double light = Amplitude(Smooth(raw, Smoothing with { Position = 8 }), 2.0);
+        double heavy = Amplitude(Smooth(raw, Smoothing with { Position = 80 }), 2.0);
 
         Assert.True(heavy < light, $"80 units gave {heavy:F3}, 8 units gave {light:F3}");
     }
@@ -261,8 +264,8 @@ public class PathSmootherTests
     public void Pressure_is_left_alone_unless_it_is_asked_for()
     {
         var filter = new PathSmoother();
-        var quiet = Smoothing with { SmoothPressure = false };
-        var loud = Smoothing with { SmoothPressure = true };
+        var quiet = Smoothing with { Pressure = 0 };
+        var loud = Smoothing with { Pressure = StrokeSmoothing.DefaultDistance };
 
         var path = Tremor(2.0);
         double Pressure(int i) => i % 2 == 0 ? 0.2 : 0.9;
@@ -279,6 +282,41 @@ public class PathSmootherTests
         Assert.Equal(Pressure(path.Count - 1), lastUnsmoothed, precision: 9);
         Assert.NotEqual(Pressure(path.Count - 1), lastSmoothed, precision: 3);
         Assert.InRange(lastSmoothed, 0.2, 0.9);
+    }
+
+    [Fact]
+    public void Each_channel_is_filtered_with_its_own_reach()
+    {
+        // The two reaches are deliberately far apart. Wherever they are equal, a build that used
+        // one of them for both channels is indistinguishable from a correct one, which is exactly
+        // how an earlier version of this check passed while proving nothing.
+        //
+        // Tail aggressiveness is off here, and has to be: it widens the step wherever pressure is
+        // falling, and a pressure that alternates every sample makes it let go on every other one,
+        // which collapses both windows and hides the reaches this is trying to measure.
+        var path = Tremor(2.0);
+        double Jumpy(int i) => i % 2 == 0 ? 0.2 : 0.9;
+
+        (Point Position, double Pressure) Run(StrokeSmoothing s)
+        {
+            var filter = new PathSmoother();
+            PathSmoother.Filtered last = default;
+            for (int i = 0; i < path.Count; i++) last = filter.Next(At(path[i], Jumpy(i)), s);
+            return (last.Position, last.RawPressure);
+        }
+
+        // A long path reach and a negligible pressure one: the line is pulled well behind the pen
+        // while the pressure still reports whatever the last sample said.
+        var steadyPath = Run(Smoothing with { Position = 200, Pressure = 2 });
+        Assert.True(Distance(steadyPath.Position, path[^1]) > 10,
+            $"the path should lag a long way at reach 200, it lagged {Distance(steadyPath.Position, path[^1]):F2}");
+        Assert.Equal(Jumpy(path.Count - 1), steadyPath.Pressure, precision: 1);
+
+        // And the other way round.
+        var steadyPressure = Run(Smoothing with { Position = 2, Pressure = 200 });
+        Assert.True(Distance(steadyPressure.Position, path[^1]) < 4,
+            $"the path should barely move at reach 2, it moved {Distance(steadyPressure.Position, path[^1]):F2}");
+        Assert.InRange(steadyPressure.Pressure, 0.45, 0.65);   // flattened toward the mean of 0.55
     }
 
     [Fact]

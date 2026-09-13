@@ -30,9 +30,9 @@ So the two are apart. The Lab keeps the pipeline honest; this builds on top of i
   part way through a stroke reaches the very next sample
 - **layers**: add, delete, reorder, hide, set opacity, merge down
 - **brushes**: a library of them, each carrying its own engine, size, spacing, opacity, pressure
-  target and pressure curve
-- **path smoothing**: Krita's distance-weighted filter, applied to the incoming path before any
-  mark is placed
+  target, pressure curve and smoothing
+- **smoothing**: Krita's distance-weighted filter, with separate reaches for position and
+  pressure, applied before any mark is placed
 - **two brush engines**: an antialiased taper swept between two round ends, and round dabs stamped
   at a distance interval
 - **two ways of compositing a stroke**: Wash, where the stroke composites into a layer of its own
@@ -72,18 +72,29 @@ rest of the dynamics work, where nine inputs are mapped this way rather than one
 
 Editing a brush changes what you draw next, not what is already on the canvas.
 
+The brush panel is on the left. It is a column of one-line rows -- label, control, value -- with
+the pressure curve and smoothing folded into sections that show their values on the header, so a
+folded section still says what it holds. At rest it is about 290 px tall against 770 for the same
+settings laid out with each label above its slider, which matters on a tablet where the panel is
+the thing competing with the canvas for height.
+
 Brushes are not saved. The opening library is built in code and lives for the session.
 
 ### Smoothing
 
-Krita's weighted smoothing, ported from `KDE/krita` at `75315b18`. Each incoming position is
-replaced by a weighted mean of the recent path, the weight of a sample falling off as a Gaussian
-in the **distance travelled** back to it:
+Krita's weighted smoothing, ported from `KDE/krita` at `75315b18`. Each incoming value is replaced
+by a weighted mean of the recent path, the weight of a sample falling off as a Gaussian in the
+**distance travelled** back to it:
 
 ```
-sigma  = Distance / 3
+sigma  = reach / 3
 weight = (1 / (sqrt(2*pi) * sigma)) * exp(-d^2 / (2 * sigma^2))
 ```
+
+**Position and pressure have separate reaches**, and either can run without the other. They are
+different problems: a shaky hand wants its path steadied and its pressure left alone, while a noisy
+sensor wants the opposite. Krita couples them -- one distance, and a switch that turns pressure
+filtering on with the same reach -- which cannot express either case.
 
 The window is measured in document units rather than in samples, which is the reason to port this
 rather than write an average. A window counted in samples reaches twice as far along the path on a
@@ -99,16 +110,19 @@ Two things follow from how the filter is built, both deliberate:
   to the last raw position. Running it out would put an unfiltered hook on the end of every stroke,
   which is more visible than the shortfall it fixes.
 
-Smoothing is an application setting rather than a brush one -- it is about the hand, not the mark,
-and Krita puts it on the tool for the same reason. libmypaint disagrees, treating slow tracking as
-a brush property, so it may yet move.
+Smoothing belongs to the brush. It sat on the application at first, on the reasoning that it is
+about the hand rather than the mark -- which is Krita's model, where it is a tool option. That is
+wrong for the way brushes are actually used: a stabilised inking brush and an unfiltered sketching
+brush want different answers in the same session, and leaving the setting outside the brush means
+setting it again by hand every time you switch. libmypaint treats slow tracking as a brush property
+for this reason.
 
-**The filter is non-destructive.** A stroke records the positions the pen reported and the settings
-it was drawn under; the filtered path is worked out on the way to the engine and not kept. Replay
-runs the filter again, which lands in the same place because it is deterministic.
+**The filter is non-destructive.** A stroke records what the pen reported; the filtered values are
+worked out on the way to the engine and not kept. Replay runs the filter again, which lands in the
+same place because it is deterministic and because the stroke keeps the brush that ran it.
 
-It opens at zero. What you see first is what the pen did; Krita's default of 50 is one slider move
-away.
+The opening library covers all four combinations: the ink pen filters its path only, the marker its
+pressure only, the dab brush both, and the beaded brush neither.
 
 ### Layers
 

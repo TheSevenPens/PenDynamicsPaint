@@ -70,9 +70,8 @@ public sealed class StrokeHistory
     /// Which layer the stroke is going onto, as <c>Layer.Id</c>. Defaulted so a caller exercising
     /// the history on its own need not invent one; the paint session always passes a real id.
     /// </param>
-    public void BeginStroke(BrushSettings brush, SKColor color, int layerId = 0,
-                            StrokeSmoothing smoothing = default)
-        => _current = new Stroke(brush, color, layerId, smoothing);
+    public void BeginStroke(BrushSettings brush, SKColor color, int layerId = 0)
+        => _current = new Stroke(brush, color, layerId);
 
     /// <summary>Record one sample into the stroke in progress, if there is one.</summary>
     /// <param name="timestampMicroseconds">

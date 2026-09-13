@@ -87,13 +87,11 @@ public sealed class Stroke
 {
     private readonly List<StrokeSample> _samples = [];
 
-    public Stroke(BrushSettings brush, SKColor color, int layerId = 0,
-                  StrokeSmoothing smoothing = default)
+    public Stroke(BrushSettings brush, SKColor color, int layerId = 0)
     {
         Brush = brush;
         Color = color;
         LayerId = layerId;
-        Smoothing = smoothing;
     }
 
     /// <summary>
@@ -119,24 +117,15 @@ public sealed class Stroke
     /// The brush that drew this stroke, in full.
     /// </summary>
     /// <remarks>
-    /// Engine, size, spacing, opacity, pressure target and curve, all of it. A replay uses this
-    /// rather than whatever is selected now, which is what stops an undo redrawing older strokes in
-    /// a brush they were never made with.
+    /// Engine, size, spacing, opacity, pressure target, curve and smoothing -- all of it. A replay
+    /// uses this rather than whatever is selected now, which is what stops an undo redrawing older
+    /// strokes in a brush they were never made with. Smoothing rides along here rather than being
+    /// recorded separately, which is one of the things moving it onto the brush bought.
     /// </remarks>
     public BrushSettings Brush { get; }
 
     /// <summary>The resolved colour this stroke was drawn in.</summary>
     public SKColor Color { get; }
-
-    /// <summary>
-    /// How the path was filtered on the way in.
-    /// </summary>
-    /// <remarks>
-    /// Recorded for the same reason as <see cref="Brush"/>, and replayed the same way: the samples
-    /// here are what the pen reported, so redrawing this stroke means running the filter again, and
-    /// running it with today's settings would move ink that is already on the canvas.
-    /// </remarks>
-    public StrokeSmoothing Smoothing { get; }
 
     public IReadOnlyList<StrokeSample> Samples => _samples;
 

@@ -76,10 +76,6 @@ public sealed class PaintSession : IDisposable
     /// <summary>The engine drawing the stroke in progress. Follows <see cref="_strokeBrush"/>.</summary>
     private IBrushEngine? _strokeEngine;
 
-    /// <summary>The filter settings the stroke in progress is committed to.</summary>
-    /// <remarks>Pinned at the first sample, like the brush, and for the same reason.</remarks>
-    private StrokeSmoothing _strokeSmoothing;
-
     /// <summary>
     /// The path filter, used both live and on replay.
     /// </summary>
@@ -106,16 +102,6 @@ public sealed class PaintSession : IDisposable
     /// recompositing the hundred or so pixels the pen moved through since the last one is nothing.
     /// </remarks>
     private SKRectI _stale;
-
-    /// <summary>
-    /// How the incoming path is filtered before any mark is placed.
-    /// </summary>
-    /// <remarks>
-    /// Takes effect at the start of the next stroke, not mid-stroke: the filter carries state
-    /// across samples, and changing how far it reaches part way through a stroke would put a step
-    /// in the middle of it.
-    /// </remarks>
-    public StrokeSmoothing Smoothing { get; set; } = StrokeSmoothing.None;
 
     /// <summary>How the marks within a stroke combine with each other.</summary>
     /// <remarks>
@@ -386,9 +372,8 @@ public sealed class PaintSession : IDisposable
         {
             _strokeBrush = brush;
             _strokeEngine = EngineFor(brush);
-            _strokeSmoothing = Smoothing;
             _smoother.Reset();
-            History.BeginStroke(brush, _strokeColor, ActiveLayer.Id, _strokeSmoothing);
+            History.BeginStroke(brush, _strokeColor, ActiveLayer.Id);
             BeginLayerIfWashing(_strokeEngine);
             _strokeEngine.BeginStroke();
         }
@@ -402,7 +387,7 @@ public sealed class PaintSession : IDisposable
                                       timestampMicroseconds);
         History.AddSample(sample);
 
-        var drawn = Filter(sample, active, _strokeSmoothing);
+        var drawn = Filter(sample, active);
 
         if (_lastDrawn is { } from && (active.DrawAtZeroPressure || drawn.ProcessedPressure > 0))
         {
@@ -425,11 +410,11 @@ public sealed class PaintSession : IDisposable
     /// output rather than the hand's input, so a brush with a steep curve would be filtered harder
     /// than a gentle one holding the same pen.
     /// </remarks>
-    private StrokeSample Filter(in StrokeSample sample, BrushSettings brush, StrokeSmoothing smoothing)
+    private StrokeSample Filter(in StrokeSample sample, BrushSettings brush)
     {
-        if (!smoothing.IsEnabled) return sample;
+        if (!brush.Smoothing.IsEnabled) return sample;
 
-        var filtered = _smoother.Next(sample, smoothing);
+        var filtered = _smoother.Next(sample, brush.Smoothing);
         return sample with
         {
             Position = filtered.Position,
@@ -663,13 +648,13 @@ public sealed class PaintSession : IDisposable
         var target = _layerActive ? _strokeLayer!.Canvas : layer.Canvas;
         var samples = stroke.Samples;
 
-        // Filtered again from the raw samples, under the settings this stroke was drawn with.
-        // Deterministic, so it lands exactly where it did the first time; using the current
-        // settings instead would move ink that is already on the canvas.
+        // Filtered again from the raw samples, through this stroke's own brush. Deterministic, so
+        // it lands exactly where it did the first time; filtering with whatever is selected now
+        // would move ink that is already on the canvas.
         StrokeSample? previous = null;
         for (int i = 0; i < samples.Count; i++)
         {
-            var drawn = Filter(samples[i], stroke.Brush, stroke.Smoothing);
+            var drawn = Filter(samples[i], stroke.Brush);
 
             if (previous is { } from &&
                 (stroke.Brush.DrawAtZeroPressure || drawn.ProcessedPressure > 0))

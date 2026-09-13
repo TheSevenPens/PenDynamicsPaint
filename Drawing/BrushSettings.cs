@@ -125,6 +125,18 @@ public sealed record BrushSettings
     /// <summary>How this brush reads the pen.</summary>
     public PressureCurve Curve { get; init; } = PressureCurve.Linear;
 
+    /// <summary>
+    /// How much this brush steadies the pen before drawing with it.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than on the application because a stabilised inking brush and an unfiltered
+    /// sketching brush want different answers in the same session: leave it outside the brush and
+    /// switching brush means setting it again by hand every time. Krita treats it as a tool option;
+    /// libmypaint treats slow tracking as a brush property, and that is the one that survives
+    /// contact with using it.
+    /// </remarks>
+    public StrokeSmoothing Smoothing { get; init; } = StrokeSmoothing.None;
+
     /// <summary>How each new stroke picks its colour.</summary>
     public ColorMode ColorMode { get; init; } = ColorMode.Black;
 

@@ -84,7 +84,6 @@ public partial class MainWindow : Window
         };
 
         WireBrushPanel();
-        WireSmoothing();
 
         LayerList.SelectionChanged += (_, _) =>
         {
@@ -266,40 +265,6 @@ public partial class MainWindow : Window
         PaintView.Invalidate();
     }
 
-    // -- Smoothing ------------------------------------------------
-
-    /// <summary>
-    /// The three controls that filter the incoming path, all writing one record on the session.
-    /// </summary>
-    /// <remarks>
-    /// The session reads it at the start of each stroke and the stroke keeps a copy, so moving a
-    /// slider changes what you draw next rather than what is already on the canvas.
-    /// </remarks>
-    private void WireSmoothing()
-    {
-        OnSlider(SmoothingSlider, ApplySmoothing);
-        OnSlider(TailSlider, ApplySmoothing);
-        SmoothPressureCheck.IsCheckedChanged += (_, _) => ApplySmoothing();
-
-        ApplySmoothing();
-    }
-
-    private void ApplySmoothing()
-    {
-        _paint.Smoothing = new StrokeSmoothing
-        {
-            Distance = SmoothingSlider.Value,
-            TailAggressiveness = TailSlider.Value,
-            SmoothPressure = SmoothPressureCheck.IsChecked == true,
-        };
-
-        SmoothingLabel.Text = SmoothingSlider.Value > 0 ? $"{SmoothingSlider.Value:F0}" : "off";
-        TailLabel.Text = $"{TailSlider.Value:F2}";
-
-        // Nothing to tune when the filter is not running.
-        SmoothingExtras.IsEnabled = _paint.Smoothing.IsEnabled;
-    }
-
     // -- The brush panel ------------------------------------------
 
     /// <summary>
@@ -351,6 +316,19 @@ public partial class MainWindow : Window
             Curve = b.Curve with { Exponent = CurveExponentSlider.Value },
         }));
 
+        OnSlider(PositionSmoothingSlider, () => EditBrush(b => b with
+        {
+            Smoothing = b.Smoothing with { Position = PositionSmoothingSlider.Value },
+        }));
+        OnSlider(PressureSmoothingSlider, () => EditBrush(b => b with
+        {
+            Smoothing = b.Smoothing with { Pressure = PressureSmoothingSlider.Value },
+        }));
+        OnSlider(TailSlider, () => EditBrush(b => b with
+        {
+            Smoothing = b.Smoothing with { TailAggressiveness = TailSlider.Value },
+        }));
+
         ShowBrush();
     }
 
@@ -387,7 +365,7 @@ public partial class MainWindow : Window
         SizeSlider.Value = b.Size;
         SizeLabel.Text = $"{b.Size:F0} px";
 
-        SpacingPanel.IsVisible = b.Engine == BrushEngineKind.Dabs;
+        SpacingRow.IsVisible = b.Engine == BrushEngineKind.Dabs;
         SpacingSlider.Value = b.Spacing;
         SpacingLabel.Text = $"{b.Spacing:F2}";
 
@@ -401,10 +379,30 @@ public partial class MainWindow : Window
         CurveExponentSlider.Value = b.Curve.Exponent;
         CurveExponentLabel.Text = $"{b.Curve.Exponent:F2}";
 
+        PositionSmoothingSlider.Value = b.Smoothing.Position;
+        PositionSmoothingLabel.Text = Reach(b.Smoothing.Position);
+        PressureSmoothingSlider.Value = b.Smoothing.Pressure;
+        PressureSmoothingLabel.Text = Reach(b.Smoothing.Pressure);
+        TailSlider.Value = b.Smoothing.TailAggressiveness;
+        TailLabel.Text = $"{b.Smoothing.TailAggressiveness:F2}";
+
+        // Tail only changes how the filter lets go, so it has nothing to do when neither runs.
+        TailRow.IsEnabled = b.Smoothing.IsEnabled;
+
+        // On the headers, so a folded section still says what it holds. Without this, collapsing
+        // them would trade height for having to open each one to see where it was set.
+        CurveSummary.Text = $"{b.Curve.Start:F2} / {b.Curve.End:F2} / {b.Curve.Exponent:F2}";
+        SmoothingSummary.Text = b.Smoothing.IsEnabled
+            ? $"{Reach(b.Smoothing.Position)} / {Reach(b.Smoothing.Pressure)}"
+            : "off";
+
         _syncingBrush = false;
 
         DrawCurve(b.Curve);
     }
+
+    /// <summary>A reach in document units, or the word for not filtering at all.</summary>
+    private static string Reach(double distance) => distance > 0 ? $"{distance:F0}" : "off";
 
     /// <summary>
     /// Plot what the brush makes of the pen, across the pen's whole range.

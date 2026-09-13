@@ -8,7 +8,8 @@ namespace PenDynamicsPaint.Drawing;
 /// Not a file format and not a preset manager. It is a starting set, chosen so that every setting
 /// that moved onto <see cref="BrushSettings"/> has at least one brush where it is doing something
 /// -- a library where all four entries differ only in size would prove nothing about whether the
-/// settings actually reach the mark.
+/// settings actually reach the mark. That includes the two smoothing reaches, which between them
+/// cover path only, pressure only, both, and neither.
 /// </para>
 /// <para>
 /// Editing a brush in the panel changes the copy held there for the session. Nothing is written to
@@ -30,6 +31,10 @@ public static class BrushLibrary
             Size = 18,
             PressureDrives = PressureControl.Size,
             Curve = new PressureCurve(0.0, 0.85, 1.4),
+
+            // Inking is where a steady line is worth a little lag. The pressure is left
+            // unfiltered: this brush wants its line straightened, not its weight evened out.
+            Smoothing = new StrokeSmoothing { Position = 55 },
         },
 
         // Translucent and a constant width, which is the case Wash exists for: a stroke asked for
@@ -42,6 +47,11 @@ public static class BrushLibrary
             Opacity = 0.35,
             PressureDrives = PressureControl.Opacity,
             Curve = new PressureCurve(0.05, 0.7, 1.0),
+
+            // The opposite case, and the reason the two reaches are separate: pressure drives
+            // opacity here, so a jumpy sensor shows as a blotchy stroke. Steady the pressure and
+            // leave the path alone.
+            Smoothing = new StrokeSmoothing { Pressure = 70 },
         },
 
         // Stamped marks, close enough together to read as a continuous stroke. Pressure drives
@@ -54,6 +64,9 @@ public static class BrushLibrary
             Spacing = 0.1,
             PressureDrives = PressureControl.Both,
             Curve = new PressureCurve(0.02, 1.0, 1.0),
+
+            // Pressure drives size and opacity together here, so both halves are worth steadying.
+            Smoothing = new StrokeSmoothing { Position = 30, Pressure = 40 },
         },
 
         // The same engine with the spacing walked apart, which is what makes distance spacing
@@ -66,6 +79,10 @@ public static class BrushLibrary
             Spacing = 1.0,
             PressureDrives = PressureControl.Size,
             Curve = new PressureCurve(0.0, 1.0, 0.7),
+
+            // Unfiltered, so the opening set has one brush that shows the pen exactly as it
+            // reported -- which is the thing this application's neighbour exists to look at.
+            Smoothing = StrokeSmoothing.None,
         },
     ];
 }
