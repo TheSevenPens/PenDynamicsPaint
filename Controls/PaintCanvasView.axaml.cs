@@ -151,6 +151,15 @@ public partial class PaintCanvasView : UserControl
         using (var image = SKImage.FromBitmap(session.Bitmap))
             _skCanvas.DrawImage(image, 0f, 0f, sampling);
 
+        // A washed stroke lives in a layer of its own until it ends, so without this it would
+        // appear only when the pen lifted. Drawn with ordinary source-over, which is what the
+        // merge will do to it: what is on screen mid-stroke is what will be on the document.
+        if (session.ActiveStrokeLayer is { } layer)
+        {
+            using var inProgress = SKImage.FromBitmap(layer);
+            _skCanvas.DrawImage(inProgress, 0f, 0f, sampling);
+        }
+
         using (var edge = new SKPaint
         {
             Color = DocumentEdge,

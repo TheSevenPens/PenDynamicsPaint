@@ -35,6 +35,31 @@ public sealed class PaintSession : IDisposable
     private StrokeSample? _lastSample;
     private SKColor _strokeColor = new(0x1A, 0x1A, 0x2E);
 
+    // The stroke in progress, when compositing is Wash. Document-sized and transparent: marks go
+    // here with alpha-darken so overlaps take the greater alpha, and it merges onto the document
+    // once when the stroke ends.
+    private SKBitmap? _strokeLayer;
+    private SKCanvas? _strokeCanvas;
+    private bool _layerActive;
+
+    /// <summary>How the marks within a stroke combine with each other.</summary>
+    /// <remarks>
+    /// Takes effect at the start of the next stroke rather than mid-stroke, since a stroke already
+    /// half composited one way cannot finish the other.
+    /// </remarks>
+    public StrokeCompositing Compositing { get; set; } = StrokeCompositing.Wash;
+
+    /// <summary>
+    /// The stroke in progress, for the presenter to draw over the document, or null when there is
+    /// none or it is being painted directly.
+    /// </summary>
+    /// <remarks>
+    /// A Wash stroke does not reach the document until it ends, so without this the ink would
+    /// appear only when the pen lifted. Krita has the same problem and solves it the same way: the
+    /// temporary device is composited into what you see while the stroke is live.
+    /// </remarks>
+    public SKBitmap? ActiveStrokeLayer => _layerActive ? _strokeLayer : null;
+
     /// <summary>Document width in document units, which are its pixels at 100%.</summary>
     public int Width { get; private set; }
 
@@ -84,6 +109,7 @@ public sealed class PaintSession : IDisposable
         if (_lastSample is null)
         {
             History.BeginStroke(brush, _strokeColor);
+            BeginLayerIfWashing();
             _engine.BeginStroke();
         }
 
@@ -94,7 +120,8 @@ public sealed class PaintSession : IDisposable
 
         if (_lastSample is { } from && (brush.DrawAtZeroPressure || processedPressure > 0))
         {
-            _engine.DrawSegment(_canvas, from, sample, brush, _strokeColor, PressureChannel.Processed);
+            var target = _layerActive ? _strokeCanvas! : _canvas;
+            _engine.DrawSegment(target, from, sample, brush, _strokeColor, PressureChannel.Processed);
             IsDirty = true;
         }
 
@@ -108,6 +135,43 @@ public sealed class PaintSession : IDisposable
         _lastSample = null;
         _engine.EndStroke();
         History.EndStroke();
+        MergeLayer();
+    }
+
+    /// <summary>Start a fresh stroke layer, if this stroke is being washed.</summary>
+    private void BeginLayerIfWashing()
+    {
+        if (Compositing != StrokeCompositing.Wash) return;
+
+        // No blender means this build of Skia would not compile it. Falling back to direct
+        // painting keeps the application drawing, with the artifact Wash exists to remove.
+        if (AlphaDarken.Blender is not { } blender) return;
+
+        _strokeLayer ??= new SKBitmap(Width, Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        _strokeCanvas ??= new SKCanvas(_strokeLayer);
+        _strokeCanvas.Clear(SKColors.Transparent);
+
+        _engine.Blender = blender;
+        _layerActive = true;
+    }
+
+    /// <summary>
+    /// Composite the finished stroke onto the document, once.
+    /// </summary>
+    /// <remarks>
+    /// The single blend is the whole point. Within the layer the marks took the greater alpha of
+    /// any overlap, so each point carries the opacity its own pressure asked for; laying that down
+    /// in one pass is what stops a hundred overlapping segments turning 15% into 99%.
+    /// </remarks>
+    private void MergeLayer()
+    {
+        if (!_layerActive || _strokeLayer is null) return;
+
+        _canvas.DrawBitmap(_strokeLayer, 0, 0);
+
+        _engine.Blender = null;
+        _layerActive = false;
+        IsDirty = true;
     }
 
     /// <summary>Remove the last stroke and redraw what remains.</summary>
@@ -135,23 +199,37 @@ public sealed class PaintSession : IDisposable
     /// <summary>Set the colour subsequent strokes are drawn in.</summary>
     public void SetStrokeColor(SKColor color) => _strokeColor = color;
 
+    /// <summary>
+    /// Redraw one recorded stroke onto the document, through the same compositing it was drawn
+    /// with.
+    /// </summary>
+    /// <remarks>
+    /// A washed stroke has to be replayed washed. Replaying it directly would let its overlaps
+    /// accumulate, so an undo would change the appearance of every stroke that survived it --
+    /// which is the kind of fault that looks like a rendering bug and is really a bookkeeping one.
+    /// </remarks>
     private void Replay(Stroke stroke)
     {
+        BeginLayerIfWashing();
         _engine.BeginStroke();
 
+        var target = _layerActive ? _strokeCanvas! : _canvas;
         var samples = stroke.Samples;
         for (int i = 1; i < samples.Count; i++)
         {
             if (!stroke.Brush.DrawAtZeroPressure && samples[i].ProcessedPressure <= 0) continue;
-            _engine.DrawSegment(_canvas, samples[i - 1], samples[i],
+            _engine.DrawSegment(target, samples[i - 1], samples[i],
                                 stroke.Brush, stroke.Color, PressureChannel.Processed);
         }
 
         _engine.EndStroke();
+        MergeLayer();
     }
 
     public void Dispose()
     {
+        _strokeCanvas?.Dispose();
+        _strokeLayer?.Dispose();
         _canvas.Dispose();
         _bitmap.Dispose();
         _engine.Dispose();

@@ -39,6 +39,39 @@ public enum PressureChannel
     Raw,
 }
 
+/// <summary>How the marks within one stroke combine with each other.</summary>
+/// <remarks>
+/// <para>
+/// Only visible with translucency. Opaque marks composite to the same colour however many of them
+/// overlap, so with <see cref="PressureControl.Size"/> the two are indistinguishable.
+/// </para>
+/// </remarks>
+public enum StrokeCompositing
+{
+    /// <summary>
+    /// Each mark composites onto the document as it is drawn, so overlaps accumulate.
+    /// </summary>
+    /// <remarks>
+    /// Kept for comparison rather than as a recommendation. Its rate is set by <b>how many samples
+    /// arrived</b> rather than by distance travelled, so the same path drawn at two speeds gives
+    /// different ink and a light stroke saturates: 15% pressure renders at 99% at real tablet
+    /// sample rates. It is therefore not Krita's Build-up, which spaces its dabs by distance and is
+    /// speed-independent; calling it that would present an artifact as a feature.
+    /// </remarks>
+    Direct,
+
+    /// <summary>
+    /// The stroke composites into a layer of its own, overlaps taking the greater alpha, and that
+    /// layer merges onto the document once when the stroke ends.
+    /// </summary>
+    /// <remarks>
+    /// Krita's Wash, and the same mechanism: <see cref="AlphaDarken"/> within the stroke, one merge
+    /// at the end. Per-sample opacity survives -- each point shows the alpha its own pressure asked
+    /// for -- and no amount of overlapping pushes it past that.
+    /// </remarks>
+    Wash,
+}
+
 /// <summary>Which property of the mark the pressure signal drives.</summary>
 public enum PressureControl
 {

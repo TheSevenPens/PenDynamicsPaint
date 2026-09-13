@@ -29,6 +29,17 @@ namespace PenDynamicsPaint.Drawing;
 /// </remarks>
 public interface IBrushEngine : IDisposable
 {
+    /// <summary>
+    /// How each mark composites into whatever it is drawn on. Null means ordinary source-over.
+    /// </summary>
+    /// <remarks>
+    /// Set by the caller for the life of a stroke rather than passed per mark, because it is a
+    /// property of how the stroke is being composited and not of any one segment. Wash sets
+    /// <see cref="AlphaDarken.Blender"/> here and draws into a layer of its own; direct painting
+    /// leaves it null.
+    /// </remarks>
+    SKBlender? Blender { get; set; }
+
     /// <summary>A stroke is starting. Clear anything carried between segments.</summary>
     /// <remarks>
     /// <para>
@@ -96,6 +107,9 @@ public sealed class RoundBrushEngine : IBrushEngine
 
     private readonly SKPath _path = new();
 
+    /// <inheritdoc />
+    public SKBlender? Blender { get; set; }
+
     /// <summary>Nothing to reset: every mark is decided by the two samples it is drawn from.</summary>
     /// <remarks>
     /// Empty on purpose rather than absent. That this engine needs no per-stroke state is a
@@ -122,6 +136,7 @@ public sealed class RoundBrushEngine : IBrushEngine
         // the whole filled path, so there is nothing to ramp it across.
         byte alpha = (byte)Math.Clamp(brush.OpacityFor(pressureTo) * 255, 0, 255);
         _paint.Color = color.WithAlpha(alpha);
+        _paint.Blender = Blender;
 
         BuildTaper(_path,
             new SKPoint((float)from.Position.X, (float)from.Position.Y), widthFrom / 2f,
