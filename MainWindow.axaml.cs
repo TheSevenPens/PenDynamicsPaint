@@ -84,6 +84,7 @@ public partial class MainWindow : Window
         };
 
         WireBrushPanel();
+        WireSmoothing();
 
         LayerList.SelectionChanged += (_, _) =>
         {
@@ -263,6 +264,40 @@ public partial class MainWindow : Window
         if (!_paint.MoveLayer(from, from + by)) return;
         RebuildLayerList();
         PaintView.Invalidate();
+    }
+
+    // -- Smoothing ------------------------------------------------
+
+    /// <summary>
+    /// The three controls that filter the incoming path, all writing one record on the session.
+    /// </summary>
+    /// <remarks>
+    /// The session reads it at the start of each stroke and the stroke keeps a copy, so moving a
+    /// slider changes what you draw next rather than what is already on the canvas.
+    /// </remarks>
+    private void WireSmoothing()
+    {
+        OnSlider(SmoothingSlider, ApplySmoothing);
+        OnSlider(TailSlider, ApplySmoothing);
+        SmoothPressureCheck.IsCheckedChanged += (_, _) => ApplySmoothing();
+
+        ApplySmoothing();
+    }
+
+    private void ApplySmoothing()
+    {
+        _paint.Smoothing = new StrokeSmoothing
+        {
+            Distance = SmoothingSlider.Value,
+            TailAggressiveness = TailSlider.Value,
+            SmoothPressure = SmoothPressureCheck.IsChecked == true,
+        };
+
+        SmoothingLabel.Text = SmoothingSlider.Value > 0 ? $"{SmoothingSlider.Value:F0}" : "off";
+        TailLabel.Text = $"{TailSlider.Value:F2}";
+
+        // Nothing to tune when the filter is not running.
+        SmoothingExtras.IsEnabled = _paint.Smoothing.IsEnabled;
     }
 
     // -- The brush panel ------------------------------------------

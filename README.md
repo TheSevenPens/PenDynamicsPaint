@@ -31,6 +31,8 @@ So the two are apart. The Lab keeps the pipeline honest; this builds on top of i
 - **layers**: add, delete, reorder, hide, set opacity, merge down
 - **brushes**: a library of them, each carrying its own engine, size, spacing, opacity, pressure
   target and pressure curve
+- **path smoothing**: Krita's distance-weighted filter, applied to the incoming path before any
+  mark is placed
 - **two brush engines**: an antialiased taper swept between two round ends, and round dabs stamped
   at a distance interval
 - **two ways of compositing a stroke**: Wash, where the stroke composites into a layer of its own
@@ -72,6 +74,42 @@ Editing a brush changes what you draw next, not what is already on the canvas.
 
 Brushes are not saved. The opening library is built in code and lives for the session.
 
+### Smoothing
+
+Krita's weighted smoothing, ported from `KDE/krita` at `75315b18`. Each incoming position is
+replaced by a weighted mean of the recent path, the weight of a sample falling off as a Gaussian
+in the **distance travelled** back to it:
+
+```
+sigma  = Distance / 3
+weight = (1 / (sqrt(2*pi) * sigma)) * exp(-d^2 / (2 * sigma^2))
+```
+
+The window is measured in document units rather than in samples, which is the reason to port this
+rather than write an average. A window counted in samples reaches twice as far along the path on a
+tablet reporting at 200 Hz as on one reporting at 100, so the same gesture is filtered differently
+on different hardware, and a slow stroke is filtered harder than a fast one along the same path.
+
+Two things follow from how the filter is built, both deliberate:
+
+- **It is self-limiting.** The step it measures runs from the last *smoothed* position to the new
+  *raw* one, so a large deviation inflates the step, shrinks the window and softens the filtering.
+  Hand tremor is flattened; a deliberate flourish is mostly left alone.
+- **A stroke ends slightly short of where the pen lifted.** The filter lags and nothing runs it out
+  to the last raw position. Running it out would put an unfiltered hook on the end of every stroke,
+  which is more visible than the shortfall it fixes.
+
+Smoothing is an application setting rather than a brush one -- it is about the hand, not the mark,
+and Krita puts it on the tool for the same reason. libmypaint disagrees, treating slow tracking as
+a brush property, so it may yet move.
+
+**The filter is non-destructive.** A stroke records the positions the pen reported and the settings
+it was drawn under; the filtered path is worked out on the way to the engine and not kept. Replay
+runs the filter again, which lands in the same place because it is deterministic.
+
+It opens at zero. What you see first is what the pen did; Krita's default of 50 is one slider move
+away.
+
 ### Layers
 
 The stack composites to a single bitmap, rebuilt only over the region that changed. A stroke in
@@ -86,13 +124,19 @@ drawn.
 
 ## What is deliberately not here
 
-**No stroke smoothing.** It filters the incoming path rather than deciding what a mark looks like,
-so it belongs with the input pipeline rather than with the brush, and it is a real piece of work in
-its own right.
-
 **No general dynamics matrix.** Pressure drives size, opacity or both, through one curve. Tilt,
 speed, direction and randomness as inputs, each with its own curve onto each output, is what
 libmypaint brings.
+
+**No stabilizer.** Krita's other smoothing mode -- the one that drags the brush behind the cursor on
+a string -- is driven by a timer rather than by samples, emitting points while the pen is still so
+the string can catch up. That needs a clock this application's input path does not have, and
+approximating it from sample arrivals would make it rate-dependent in exactly the way the weighted
+filter is not.
+
+**No curve fitting between samples.** Krita also paints a Bezier through consecutive points rather
+than a straight segment, which is a second kind of smoothing and a more visible one. It changes
+what a segment is, so it belongs with the brush engines rather than with the filter.
 
 **No raw-versus-processed comparison.** That is the Lab's signature feature and it does not
 translate: with per-brush dynamics there is no single processed stream for a raw one to be compared

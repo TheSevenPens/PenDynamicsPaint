@@ -28,6 +28,32 @@
                     <ComboBox x:Name="CompositingCombo" Width="110" Height="32" VerticalAlignment="Center" />
                 </StackPanel>
 
+                <!-- Here rather than in the brush panel because it is about the hand, not the
+                     mark: it changes where the pen is taken to have been, and every brush drawing
+                     that path gets the same benefit. Krita puts it on the tool for the same
+                     reason. Opens at zero, so what you see first is what the pen did; Krita's
+                     default is 50 and is one slider move away. -->
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Smoothing" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.Hint}" />
+                    <Slider x:Name="SmoothingSlider" Width="120" Minimum="0" Maximum="200" Value="0"
+                            VerticalAlignment="Center" />
+                    <TextBlock x:Name="SmoothingLabel" Width="34" VerticalAlignment="Center"
+                               FontSize="12" Foreground="{DynamicResource Pdl.SubtleText}" />
+                </StackPanel>
+
+                <StackPanel x:Name="SmoothingExtras" Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="Tail" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.Hint}" />
+                    <Slider x:Name="TailSlider" Width="80" Minimum="0" Maximum="1" Value="0.15"
+                            VerticalAlignment="Center" />
+                    <TextBlock x:Name="TailLabel" Width="30" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.SubtleText}" />
+                    <CheckBox x:Name="SmoothPressureCheck" Content="Pressure too" FontSize="12"
+                              VerticalAlignment="Center" />
+                </StackPanel>
+
                 <Border Background="{DynamicResource Pdl.ActiveFill}" CornerRadius="4" Padding="8,3"
                         VerticalAlignment="Center">
                     <TextBlock x:Name="StatusLabel" FontSize="12" VerticalAlignment="Center"

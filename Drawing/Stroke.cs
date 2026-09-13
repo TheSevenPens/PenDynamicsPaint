@@ -37,6 +37,12 @@ public readonly record struct PenOrientation(
 /// the brush too. Width and opacity are deliberately not stored: they follow from this value and
 /// that brush by arithmetic, so keeping them would be a second copy to keep in step for no gain.
 /// </para>
+/// <para>
+/// <b>Smoothing is not applied here.</b> A filtered sample is computed on the way to the engine and
+/// thrown away; what is recorded is where the pen went. That keeps the filter non-destructive --
+/// the pen's own path survives in the document -- at the cost of having to run it again to replay
+/// the stroke, which <c>PaintSession</c> does. See <see cref="PathSmoother"/>.
+/// </para>
 /// </remarks>
 /// <param name="Position">Canvas-local position in DIPs.</param>
 /// <param name="TimestampMicroseconds">
@@ -81,11 +87,13 @@ public sealed class Stroke
 {
     private readonly List<StrokeSample> _samples = [];
 
-    public Stroke(BrushSettings brush, SKColor color, int layerId = 0)
+    public Stroke(BrushSettings brush, SKColor color, int layerId = 0,
+                  StrokeSmoothing smoothing = default)
     {
         Brush = brush;
         Color = color;
         LayerId = layerId;
+        Smoothing = smoothing;
     }
 
     /// <summary>
@@ -119,6 +127,16 @@ public sealed class Stroke
 
     /// <summary>The resolved colour this stroke was drawn in.</summary>
     public SKColor Color { get; }
+
+    /// <summary>
+    /// How the path was filtered on the way in.
+    /// </summary>
+    /// <remarks>
+    /// Recorded for the same reason as <see cref="Brush"/>, and replayed the same way: the samples
+    /// here are what the pen reported, so redrawing this stroke means running the filter again, and
+    /// running it with today's settings would move ink that is already on the canvas.
+    /// </remarks>
+    public StrokeSmoothing Smoothing { get; }
 
     public IReadOnlyList<StrokeSample> Samples => _samples;
 
