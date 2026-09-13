@@ -83,7 +83,14 @@
                     <ComboBox x:Name="CompositingCombo" Width="110" Height="30" VerticalAlignment="Center" />
                 </StackPanel>
 
-<!-- The document's own commands, kept apart from the two settings beside them: these act
+<!-- The ink. A fixed set rather than a picker: the point is to have more than one
+                     colour at all, and until this there was exactly one, which made a smudge
+                     brush impossible to tell apart from an ordinary one, since it could only ever
+                     pick up and lay down the same dark navy everything else was drawn in. -->
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
+                            x:Name="SwatchRow" />
+
+                <!-- The document's own commands, kept apart from the two settings beside them: these act
                      on what has been drawn rather than on how the next mark is made. Open and Save
                      are the layered format; Export flattens to a PNG for anything that wants a
                      picture rather than a document. -->
