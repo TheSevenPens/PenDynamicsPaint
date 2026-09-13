@@ -431,6 +431,7 @@ public sealed class PaintSession : IDisposable
         _strokeEngine?.EndStroke();
         History.EndStroke();
         MergeStrokeLayer(_strokeEngine);
+        BakeStrokesOverCap();
 
         _strokeBrush = null;
         _strokeEngine = null;
@@ -603,15 +604,50 @@ public sealed class PaintSession : IDisposable
         EndStroke();
         History.Clear();
 
-        // Not ResetToBaseline: clearing the document means clearing it, including whatever a merge
-        // baked in. Keeping the baseline would leave marks behind that nothing could then remove.
-        foreach (var layer in _layers) layer.Canvas.Clear(SKColors.Transparent);
+        // Both the pixels and the baseline. Wiping only what is on screen leaves the baseline
+        // holding whatever was baked into it, and the next undo resets to that -- so work the user
+        // cleared reappears on its own.
+        foreach (var layer in _layers) layer.ClearEverything();
 
         InvalidateComposite();
     }
 
     /// <summary>Set the colour subsequent strokes are drawn in.</summary>
     public void SetStrokeColor(SKColor color) => _strokeColor = color;
+
+    /// <summary>
+    /// Drop the oldest strokes once the history is over its caps, keeping what they drew.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The caps bound a long session: a stroke count alone does not, since one continuous stroke
+    /// can run for minutes at tablet report rates. Until this was wired up they were dead, and the
+    /// history grew for the life of the session.
+    /// </para>
+    /// <para>
+    /// <b>An evicted stroke is drawn onto its layer's baseline, not merely forgotten.</b> Undo
+    /// works by clearing a layer to its baseline and replaying what is retained, so a stroke
+    /// dropped from the history without that would vanish from the canvas on the next undo --
+    /// silently destroying work the user can still see. <c>EvictOldestIfOverCap</c> hands the
+    /// stroke back rather than discarding it for exactly this reason.
+    /// </para>
+    /// <para>
+    /// Drawn onto the baseline rather than baking the whole layer, which would also bake the
+    /// strokes still in the history and leave replay drawing them a second time.
+    /// </para>
+    /// </remarks>
+    private void BakeStrokesOverCap()
+    {
+        while (History.EvictOldestIfOverCap() is { } evicted)
+        {
+            var layer = _layers.FirstOrDefault(l => l.Id == evicted.LayerId);
+
+            // Its layer is gone, so its pixels went with it and there is nothing to preserve.
+            if (layer is null) continue;
+
+            Replay(evicted, layer.BaselineCanvas);
+        }
+    }
 
     /// <summary>Clear one layer to its baseline and replay the strokes that belong to it.</summary>
     private void RepaintLayer(int layerId)
@@ -623,7 +659,7 @@ public sealed class PaintSession : IDisposable
 
         foreach (var stroke in History.Strokes)
             if (stroke.LayerId == layerId)
-                Replay(stroke, layer);
+                Replay(stroke, layer.Canvas);
     }
 
     /// <summary>
@@ -634,7 +670,7 @@ public sealed class PaintSession : IDisposable
     /// accumulate, so an undo would change the appearance of every stroke that survived it --
     /// which is the kind of fault that looks like a rendering bug and is really a bookkeeping one.
     /// </remarks>
-    private void Replay(Stroke stroke, Layer layer)
+    private void Replay(Stroke stroke, SKCanvas destination)
     {
         // The stroke's own brush, so its engine, size, spacing and curve are the ones it was drawn
         // with. Replaying through whatever is selected now is how an undo used to redraw older
@@ -645,7 +681,7 @@ public sealed class PaintSession : IDisposable
         engine.BeginStroke();
         _smoother.Reset();
 
-        var target = _layerActive ? _strokeLayer!.Canvas : layer.Canvas;
+        var target = _layerActive ? _strokeLayer!.Canvas : destination;
         var samples = stroke.Samples;
 
         // Filtered again from the raw samples, through this stroke's own brush. Deterministic, so
@@ -669,10 +705,10 @@ public sealed class PaintSession : IDisposable
         engine.EndStroke();
 
         // Not MergeStrokeLayer: that merges onto the active layer, and a replay is redrawing
-        // whichever layer the stroke belonged to, which need not be the one in front of the pen.
+        // whichever surface was asked for, which need not be the one in front of the pen.
         if (_layerActive && _strokeLayer is not null)
         {
-            _strokeLayer.DrawContentOnto(layer.Canvas);
+            _strokeLayer.DrawContentOnto(destination);
             engine.Blender = null;
             _layerActive = false;
         }
