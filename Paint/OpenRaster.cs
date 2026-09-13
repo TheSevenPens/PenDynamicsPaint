@@ -137,7 +137,11 @@ public static class OpenRaster
         // application has none. Flattening keeps every layer's pixels rather than dropping a whole
         // group, and the shortfall is reported instead of passing silently.
         var layers = image.Descendants("layer").ToList();
-        if (image.Descendants("stack").Any())
+
+        // A group is a stack inside the root one. Asking whether the document contains a stack at
+        // all is always true -- the root is one -- so that reports a group on every file, including
+        // every file this application writes.
+        if (image.Element("stack")?.Descendants("stack").Any() == true)
         {
             ignored.Add("layer groups (flattened)");
         }

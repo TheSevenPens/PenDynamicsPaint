@@ -228,6 +228,45 @@ public class OpenRasterTests
     }
 
     [Fact]
+    public void A_document_this_wrote_reports_nothing_as_unhonoured()
+    {
+        // The check none of the round-trip tests made, and the one that mattered: they all read
+        // the session back and never looked at what was said about it. Opening a file written here
+        // announced "layer groups (flattened) not honoured" on every document, because asking
+        // whether one contains a stack at all is always true -- the root of the format is a stack.
+        //
+        // Found by opening a file in the application and reading the status line, not by a test.
+        using var session = TwoMarkedLayers();
+        using var file = SavedTo(session);
+
+        var loaded = OpenRaster.Load(file);
+        using var reopened = loaded.Session;
+
+        Assert.True(loaded.Ignored.Count == 0,
+            $"nothing should be unhonoured in our own file, but: {string.Join(", ", loaded.Ignored)}");
+    }
+
+    [Fact]
+    public void A_group_of_layers_is_flattened_and_said_to_have_been()
+    {
+        // The other half. A detection that never fires is the same as none, so this pins that a
+        // genuine group -- a stack inside the root stack -- is both kept and reported.
+        using var patch = new SKBitmap(10, 10, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using (var canvas = new SKCanvas(patch)) canvas.Clear(Blue);
+
+        using var file = OneLayerAt(patch, 0, 0, 40, 40, inAGroup: true);
+        var loaded = OpenRaster.Load(file);
+
+        using var session = loaded.Session;
+
+        Assert.Contains("layer groups (flattened)", loaded.Ignored);
+
+        // Flattened, not dropped: the layer inside the group still arrives.
+        Assert.Single(session.Layers);
+        Assert.Equal(Blue, session.Bitmap.GetPixel(5, 5));
+    }
+
+    [Fact]
     public void A_composite_mode_this_cannot_do_is_reported_rather_than_passed_over()
     {
         // The same bargain the brush loader makes. The document still opens -- refusing it would
@@ -278,7 +317,8 @@ public class OpenRasterTests
 
     /// <summary>A minimal one-layer file, for the cases this application never writes itself.</summary>
     private static MemoryStream OneLayerAt(SKBitmap content, int x, int y, int width, int height,
-                                           string compositeOp = "svg:src-over")
+                                           string compositeOp = "svg:src-over",
+                                           bool inAGroup = false)
     {
         var stream = new MemoryStream();
 
@@ -290,19 +330,24 @@ public class OpenRasterTests
                 mime.Write("image/openraster");
             }
 
+            var layer = new XElement("layer",
+                new XAttribute("name", "Only"),
+                new XAttribute("src", "data/layer0.png"),
+                new XAttribute("x", x),
+                new XAttribute("y", y),
+                new XAttribute("opacity", "1"),
+                new XAttribute("visibility", "visible"),
+                new XAttribute("composite-op", compositeOp));
+
+            // A group is a stack inside the root stack, which is how other applications store one.
+            object content_ = inAGroup ? new XElement("stack", new XAttribute("name", "A group"), layer)
+                                       : layer;
+
             var image = new XElement("image",
                 new XAttribute("version", "0.0.3"),
                 new XAttribute("w", width),
                 new XAttribute("h", height),
-                new XElement("stack",
-                    new XElement("layer",
-                        new XAttribute("name", "Only"),
-                        new XAttribute("src", "data/layer0.png"),
-                        new XAttribute("x", x),
-                        new XAttribute("y", y),
-                        new XAttribute("opacity", "1"),
-                        new XAttribute("visibility", "visible"),
-                        new XAttribute("composite-op", compositeOp))));
+                new XElement("stack", content_));
 
             using (var entry = zip.CreateEntry("stack.xml").Open())
             {
