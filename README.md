@@ -35,6 +35,8 @@ So the two are apart. The Lab keeps the pipeline honest; this builds on top of i
   pressure, applied before any mark is placed
 - **curve fitting**: a cubic through the samples, so the ink between them follows an arc rather
   than a chord
+- **MyPaint brushes**: `.myb` files, with settings decided per dab from nine inputs including tilt,
+  speed and direction
 - **two brush engines**: an antialiased taper swept between two round ends, and round dabs stamped
   at a distance interval
 - **two ways of compositing a stroke**: Wash, where the stroke composites into a layer of its own
@@ -156,6 +158,47 @@ One adaptation. Krita divides each tangent by the time elapsed across it, making
 speed; here they are divided by the number of sample intervals instead, making them a distance per
 sample. Not every backend supplies a usable clock, and a divisor that silently collapsed to one
 would make the first tangent count double.
+
+### MyPaint brushes
+
+The brush model from [libmypaint](https://github.com/mypaint/libmypaint), ported to C# at `v1.6.1`,
+driving the existing dab engine. `.myb` files load, and a brush's settings are decided **per dab**
+from nine inputs: pressure, two smoothed speeds, a random value, how far into the stroke the pen is,
+direction of travel, tilt declination and ascension, and barrel rotation.
+
+Two rules carry most of the behaviour and neither is the obvious one:
+
+- an input's curve **adds** to a setting's base value rather than scaling it, so several inputs can
+  pull one setting at once and cancel
+- beyond its outermost control points a curve **extrapolates** along its terminal segment rather
+  than clamping, so a pressure curve drawn over 0..1 still has an opinion about a tablet that
+  reports 1.4
+
+Dabs fade by libmypaint's own profile: two straight lines in the *square* of the normalised radius,
+which is a curve in the radius and so is sampled into a gradient rather than handed over as two
+stops.
+
+**What reaches the mark:** radius, opacity, hardness, spacing, the pile-up correction, and the two
+random offsets. **What does not:** elliptical dabs, smudge, colour dynamics, tracking, and the
+eraser.
+
+The pile-up correction is `opaque_linearize`, and it is worth calling out because its default is
+0.9 rather than 0 -- so it applies to nearly every brush file whether or not the file mentions it.
+What the opacity settings state is the opacity the *stroke* should reach, not the opacity of one
+dab, and a brush lays several dabs over every pixel; without the correction the stroke overshoots
+by that pile. The airbrush asks for 52% and lays 11.5 dabs per pixel, so it arrived as a solid
+black slab with no pressure response until this was put in. A brush file that
+leans on any of those still loads, and the panel says how many settings went unused rather than
+letting the shortfall pass unnoticed.
+
+**Not a binding.** libmypaint is ISC licensed and binding it is a real option, but on Windows it
+needs a C toolchain, vcpkg, and builds of glib and json-c before the library itself — and the engine
+then becomes a black box, which is the opposite of what this pair of repositories is for. The model
+is small enough to port and the port is what can be instrumented.
+
+**Time is the weak point.** Speed is distance per second and the pen's own clock is what makes that
+meaningful; where a backend reports none, a nominal interval stands in, which makes speed a function
+of the report rate rather than of the hand.
 
 ### Framework independence
 

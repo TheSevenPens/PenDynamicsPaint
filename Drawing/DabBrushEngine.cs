@@ -48,6 +48,10 @@ public sealed class DabBrushEngine : IBrushEngine
     public SKBlender? Blender { get; set; }
 
     /// <inheritdoc />
+    /// <remarks>Accumulated from the dabs placed, since spacing decides how many there are.</remarks>
+    public SKRect LastSegmentBounds { get; private set; }
+
+    /// <inheritdoc />
     public void BeginStroke() => _spacing.Reset();
 
     /// <inheritdoc />
@@ -57,6 +61,8 @@ public sealed class DabBrushEngine : IBrushEngine
     public void DrawSegment(SKCanvas canvas, in StrokeSample from, in StrokeSample to,
         BrushSettings brush, SKColor color, PressureChannel channel)
     {
+        LastSegmentBounds = SKRect.Empty;
+
         double x0 = from.Position.X, y0 = from.Position.Y;
         double dx = to.Position.X - x0, dy = to.Position.Y - y0;
         double length = Math.Sqrt(dx * dx + dy * dy);
@@ -83,7 +89,13 @@ public sealed class DabBrushEngine : IBrushEngine
             _paint.Color = color.WithAlpha(alpha);
             _paint.Blender = Blender;
 
-            canvas.DrawCircle((float)(x0 + dx * t), (float)(y0 + dy * t), radius, _paint);
+            float cx = (float)(x0 + dx * t), cy = (float)(y0 + dy * t);
+
+            var touched = new SKRect(cx - radius, cy - radius, cx + radius, cy + radius);
+            LastSegmentBounds = LastSegmentBounds.IsEmpty
+                ? touched : SKRect.Union(LastSegmentBounds, touched);
+
+            canvas.DrawCircle(cx, cy, radius, _paint);
         }
     }
 

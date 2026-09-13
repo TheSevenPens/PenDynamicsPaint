@@ -122,7 +122,7 @@
                         </Grid>
                     </Border>
 
-                    <Border Classes="row">
+                    <Border Classes="row" x:Name="DrivesRow">
                         <Grid ColumnDefinitions="58,*">
                             <TextBlock Grid.Column="0" Classes="name" Text="Pressure" />
                             <ComboBox Grid.Column="1" x:Name="DrivesCombo" Height="24"
@@ -131,7 +131,22 @@
                         </Grid>
                     </Border>
 
-                    <Border Classes="row">
+                    <!-- Only for a MyPaint brush, where the file decides what the sliders above
+                         would otherwise say. Shows what was loaded and how much of it went
+                         unused, so a brush that wanted smudge does not look like one that did
+                         not. -->
+                    <Border Classes="row" x:Name="MyPaintRow">
+                        <Grid ColumnDefinitions="58,*,auto">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Brush file" />
+                            <TextBlock Grid.Column="1" x:Name="MyPaintLabel" Classes="value"
+                                       TextAlignment="Left" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Button Grid.Column="2" Content="Load" FontSize="10" Padding="6,1"
+                                    VerticalAlignment="Center" Click="LoadMyPaintBrush_Click" />
+                        </Grid>
+                    </Border>
+
+                    <Border Classes="row" x:Name="SizeRow">
                         <Grid ColumnDefinitions="58,*,36">
                             <TextBlock Grid.Column="0" Classes="name" Text="Size" />
                             <Slider Grid.Column="1" x:Name="SizeSlider" Minimum="1" Maximum="200" />
@@ -149,7 +164,7 @@
                         </Grid>
                     </Border>
 
-                    <Border Classes="row">
+                    <Border Classes="row" x:Name="OpacityRow">
                         <Grid ColumnDefinitions="58,*,36">
                             <TextBlock Grid.Column="0" Classes="name" Text="Opacity" />
                             <Slider Grid.Column="1" x:Name="BrushOpacitySlider" Minimum="0" Maximum="100" />

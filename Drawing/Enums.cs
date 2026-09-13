@@ -127,4 +127,13 @@ public enum BrushEngineKind
 
     /// <summary>Round marks stamped along the path at a distance interval.</summary>
     Dabs,
+
+    /// <summary>
+    /// Dabs whose size, opacity, softness and spacing are decided per dab by a MyPaint brush.
+    /// </summary>
+    /// <remarks>
+    /// The same distance spacing as <see cref="Dabs"/>, with the numbers coming from
+    /// <c>BrushSettings.MyPaint</c> rather than from the size and spacing sliders.
+    /// </remarks>
+    MyPaint,
 }

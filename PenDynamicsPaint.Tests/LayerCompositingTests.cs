@@ -1,4 +1,5 @@
 using PenDynamicsPaint.Drawing;
+using PenDynamicsPaint.Drawing.MyPaint;
 using PenDynamicsPaint.Paint;
 using SkiaSharp;
 using Xunit;
@@ -85,6 +86,67 @@ public class LayerCompositingTests
         Assert.True(diff is null,
             diff is null ? "" :
             $"the incremental composite is stale at {diff.Value.X},{diff.Value.Y}: " +
+            $"{diff.Value.A} where a full recomposite gives {diff.Value.B}");
+    }
+
+    [Fact]
+    public void A_brush_whose_mark_outgrows_the_size_slider_still_composites_all_of_it()
+    {
+        // The region to refresh used to be worked out from BrushSettings.StrokeWidthFor -- the
+        // size slider -- which is right only for an engine whose mark is the slider's width. A
+        // MyPaint brush decides its own radius from its file, so the composite was refreshing a
+        // narrow band along the path while ink landed far outside it, and the airbrush came out as
+        // rectangular blocks of older paint with the rest of every dab missing.
+        //
+        // radius_logarithmic 3.0 is about 20 units against a slider of 8, so the mark is several
+        // times the width the old arithmetic allowed for.
+        var brush = BrushSettings.Default with
+        {
+            Size = 8,
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = MyPaintBrush.Parse("""
+                {
+                  "version": 3,
+                  "settings": {
+                    "radius_logarithmic": { "base_value": 3.0 },
+                    "opaque": { "base_value": 1.0 },
+                    "opaque_multiply": { "base_value": 1.0 },
+                    "hardness": { "base_value": 1.0 },
+                    "dabs_per_actual_radius": { "base_value": 4.0 }
+                  }
+                }
+                """, "big"),
+        };
+
+        using var session = new PaintSession(400, 240);
+        session.AddLayer();
+        session.SetStrokeColor(Red);
+
+        // Samples far apart, so that a segment holds a dozen dabs strung out along it rather than
+        // one. That is the second half of the fault: an engine that reported only the dab it
+        // finished on would still cover a segment shorter than a dab, and the region it left out
+        // would never show.
+        //
+        // Read after every sample, which is what the viewport does: each read composites whatever
+        // is stale and clears the flag, so a region left unmarked is never revisited. Reading only
+        // at the end would union every segment's region and hide the fault entirely.
+        for (int i = 0; i <= 5; i++)
+        {
+            session.AddSample(50 + i * 60, 120 + Math.Sin(i * 0.9) * 40, 0.8, brush);
+            _ = session.Bitmap;
+        }
+
+        // Copied while the stroke is still live. EndStroke recomposites the whole document when it
+        // merges, which would repair the staleness before it could be seen.
+        using var incremental = session.Bitmap.Copy();
+
+        session.InvalidateComposite();
+        using var full = session.Bitmap.Copy();
+
+        var diff = FirstDifference(incremental, full);
+        Assert.True(diff is null,
+            diff is null ? "" :
+            $"the composite is stale at {diff.Value.X},{diff.Value.Y}: " +
             $"{diff.Value.A} where a full recomposite gives {diff.Value.B}");
     }
 
