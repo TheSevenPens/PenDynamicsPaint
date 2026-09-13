@@ -1,4 +1,3 @@
-using Avalonia;
 
 namespace PenDynamicsPaint.Drawing;
 
@@ -98,7 +97,7 @@ public sealed class PathSmoother
     /// before the curve -- it is the pen's signal being steadied, not the brush's response. The
     /// caller runs the result through the brush afterwards.
     /// </remarks>
-    public readonly record struct Filtered(Point Position, double RawPressure);
+    public readonly record struct Filtered(DocumentPoint Position, double RawPressure);
 
     /// <summary>
     /// Filter one sample, returning what the stroke should be taken to have done.
@@ -136,7 +135,7 @@ public sealed class PathSmoother
         return new Filtered(position, pressure);
     }
 
-    private Point WeightedPosition(double reach, double tail, Point fallback)
+    private DocumentPoint WeightedPosition(double reach, double tail, DocumentPoint fallback)
     {
         double x = 0, y = 0, weightSum = 0;
 
@@ -151,7 +150,7 @@ public sealed class PathSmoother
         // not reproduced: it rejects a legitimate filtered position anywhere on the top or left
         // edge of the document, which here is inside the page rather than off-canvas. The
         // condition it was reaching for is this one.
-        return weightSum > 0 ? new Point(x / weightSum, y / weightSum) : fallback;
+        return weightSum > 0 ? new DocumentPoint(x / weightSum, y / weightSum) : fallback;
     }
 
     private double WeightedPressure(double reach, double tail, double fallback)
@@ -208,7 +207,7 @@ public sealed class PathSmoother
         }
     }
 
-    private static double Distance(Point a, Point b)
+    private static double Distance(DocumentPoint a, DocumentPoint b)
     {
         double dx = b.X - a.X, dy = b.Y - a.Y;
         return Math.Sqrt(dx * dx + dy * dy);

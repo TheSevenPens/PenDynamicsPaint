@@ -393,7 +393,7 @@ public sealed class PaintSession : IDisposable
 
         // Recorded as the pen reported it. The filtered form is worked out below and not kept:
         // the document holds the pen's path, and replay runs the filter again.
-        var sample = new StrokeSample(new global::Avalonia.Point(documentX, documentY),
+        var sample = new StrokeSample(new DocumentPoint(documentX, documentY),
                                       pressure, orientation, active.Process(pressure),
                                       timestampMicroseconds);
         History.AddSample(sample);

@@ -1,4 +1,3 @@
-using Avalonia;
 using SkiaSharp;
 
 namespace PenDynamicsPaint.Drawing;
@@ -79,7 +78,7 @@ public sealed class StrokeHistory
     /// pattern -- need not invent one; zero then means the same thing it means everywhere else,
     /// which is that no clock was reported.
     /// </param>
-    public void AddSample(Point position, double rawPressure, PenOrientation orientation,
+    public void AddSample(DocumentPoint position, double rawPressure, PenOrientation orientation,
                           double processedPressure, long timestampMicroseconds = 0)
         => AddSample(new StrokeSample(position, rawPressure, orientation, processedPressure,
                                       timestampMicroseconds));

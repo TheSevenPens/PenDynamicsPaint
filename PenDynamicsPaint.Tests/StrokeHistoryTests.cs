@@ -1,4 +1,3 @@
-using Avalonia;
 using PenDynamicsPaint.Drawing;
 using SkiaSharp;
 using Xunit;
@@ -22,7 +21,7 @@ public class StrokeHistoryTests
         var h = new StrokeHistory();
         h.BeginStroke(BrushSettings.Default, Blue);
         for (int i = 0; i < sampleCount; i++)
-            h.AddSample(new Point(i, i), rawPressure: 0.5, PenOrientation.None, processedPressure: 0.25);
+            h.AddSample(new DocumentPoint(i, i), rawPressure: 0.5, PenOrientation.None, processedPressure: 0.25);
         h.EndStroke();
         recorded = h.Strokes[^1];
         return h;
@@ -34,7 +33,7 @@ public class StrokeHistoryTests
         var brush = BrushSettings.Default with { Size = 77 };
         var h = new StrokeHistory();
         h.BeginStroke(brush, Blue);
-        h.AddSample(new Point(1, 1), 0.5, PenOrientation.None, 0.25);
+        h.AddSample(new DocumentPoint(1, 1), 0.5, PenOrientation.None, 0.25);
         h.EndStroke();
 
         var s = h.Strokes[0];
@@ -49,7 +48,7 @@ public class StrokeHistoryTests
         // Recorded from day one so the first tilt feature is not also a format migration.
         var h = new StrokeHistory();
         h.BeginStroke(BrushSettings.Default, Blue);
-        h.AddSample(new Point(0, 0), 0.5, new PenOrientation(10, 20, 30, -5, 5), 0.25);
+        h.AddSample(new DocumentPoint(0, 0), 0.5, new PenOrientation(10, 20, 30, -5, 5), 0.25);
         h.EndStroke();
 
         var o = h.Strokes[0].Samples[0].Orientation;
@@ -87,7 +86,7 @@ public class StrokeHistoryTests
         foreach (var size in (double[])[10, 20, 30])
         {
             h.BeginStroke(BrushSettings.Default with { Size = size }, Blue);
-            h.AddSample(new Point(0, 0), 0.5, PenOrientation.None, 0.25);
+            h.AddSample(new DocumentPoint(0, 0), 0.5, PenOrientation.None, 0.25);
             h.EndStroke();
         }
 
@@ -106,7 +105,7 @@ public class StrokeHistoryTests
     {
         var h = WithOneStroke(out _);
         h.BeginStroke(BrushSettings.Default, Blue);
-        h.AddSample(new Point(9, 9), 0.5, PenOrientation.None, 0.25);
+        h.AddSample(new DocumentPoint(9, 9), 0.5, PenOrientation.None, 0.25);
 
         h.Clear();
         h.EndStroke();   // the in-progress stroke must not resurface

@@ -1,4 +1,3 @@
-using Avalonia;
 
 namespace PenDynamicsPaint.Drawing;
 
@@ -57,7 +56,7 @@ public sealed class CurveFitter
 
     private StrokeSample? _older;
     private StrokeSample? _previous;
-    private Point _previousTangent;
+    private DocumentPoint _previousTangent;
     private bool _haveTangent;
 
     /// <summary>Begin a new stroke. Nothing is carried over.</summary>
@@ -137,7 +136,7 @@ public sealed class CurveFitter
         _older = null;
     }
 
-    private static Point Difference(Point from, Point to, int intervals) =>
+    private static DocumentPoint Difference(DocumentPoint from, DocumentPoint to, int intervals) =>
         new((to.X - from.X) / intervals, (to.Y - from.Y) / intervals);
 
     /// <summary>
@@ -150,9 +149,9 @@ public sealed class CurveFitter
     /// rather than a curve.
     /// </remarks>
     private static IEnumerable<StrokeSample> Fit(StrokeSample from, StrokeSample to,
-                                                 Point tangentFrom, Point tangentTo)
+                                                 DocumentPoint tangentFrom, DocumentPoint tangentTo)
     {
-        Point p1 = from.Position, p2 = to.Position;
+        DocumentPoint p1 = from.Position, p2 = to.Position;
 
         // A zero tangent carries no direction, so there is no curve to fit. A straight piece is
         // the honest answer, and it is what Krita falls back to.
@@ -162,17 +161,17 @@ public sealed class CurveFitter
             yield break;
         }
 
-        var direction1 = new Point(p1.X + tangentFrom.X, p1.Y + tangentFrom.Y);
-        var direction2 = new Point(p2.X - tangentTo.X, p2.Y - tangentTo.Y);
+        var direction1 = new DocumentPoint(p1.X + tangentFrom.X, p1.Y + tangentFrom.Y);
+        var direction2 = new DocumentPoint(p2.X - tangentTo.X, p2.Y - tangentTo.Y);
 
-        Point target1, target2;
+        DocumentPoint target1, target2;
 
         // When the segment between the two control directions crosses the chord, the curve turns
         // back on itself: the handles are on opposite sides and must not be pulled to a common
         // point, so each keeps its own direction at half the chord's length.
         if (Crosses(direction1, direction2, p1, p2))
         {
-            double reach = Length(new Point(p2.X - p1.X, p2.Y - p1.Y)) / 2;
+            double reach = Length(new DocumentPoint(p2.X - p1.X, p2.Y - p1.Y)) / 2;
             target1 = Along(p1, direction1, reach);
             target2 = Along(p2, direction2, reach);
         }
@@ -184,7 +183,7 @@ public sealed class CurveFitter
         else
         {
             // Parallel tangents, or a meeting point so far away it says nothing useful.
-            target1 = target2 = new Point((p1.X + p2.X) / 2, (p1.Y + p2.Y) / 2);
+            target1 = target2 = new DocumentPoint((p1.X + p2.X) / 2, (p1.Y + p2.Y) / 2);
         }
 
         double speed1 = Length(tangentFrom);
@@ -196,7 +195,7 @@ public sealed class CurveFitter
         // Symmetric handles overshoot into a corner, so shorten them as the two speeds converge.
         double reachCoefficient = ControlReach * (1 - Math.Max(0, similarity - 0.8));
 
-        Point control1, control2;
+        DocumentPoint control1, control2;
         if (speed1 > speed2)
         {
             control1 = Lerp(p1, target1, reachCoefficient);
@@ -221,11 +220,11 @@ public sealed class CurveFitter
     /// Measured on the control polygon, which is never shorter than the curve, so the estimate
     /// errs toward more pieces rather than fewer.
     /// </remarks>
-    private static int PieceCount(Point p1, Point c1, Point c2, Point p2)
+    private static int PieceCount(DocumentPoint p1, DocumentPoint c1, DocumentPoint c2, DocumentPoint p2)
     {
-        double polygon = Length(new Point(c1.X - p1.X, c1.Y - p1.Y))
-                       + Length(new Point(c2.X - c1.X, c2.Y - c1.Y))
-                       + Length(new Point(p2.X - c2.X, p2.Y - c2.Y));
+        double polygon = Length(new DocumentPoint(c1.X - p1.X, c1.Y - p1.Y))
+                       + Length(new DocumentPoint(c2.X - c1.X, c2.Y - c1.Y))
+                       + Length(new DocumentPoint(p2.X - c2.X, p2.Y - c2.Y));
 
         return Math.Clamp((int)Math.Ceiling(polygon / FlatteningStep), 1, MaxPieces);
     }
@@ -245,52 +244,52 @@ public sealed class CurveFitter
                                 (to.ProcessedPressure - from.ProcessedPressure) * t,
         };
 
-    private static Point Cubic(Point p1, Point c1, Point c2, Point p2, double t)
+    private static DocumentPoint Cubic(DocumentPoint p1, DocumentPoint c1, DocumentPoint c2, DocumentPoint p2, double t)
     {
         double u = 1 - t;
         double a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
 
-        return new Point(a * p1.X + b * c1.X + c * c2.X + d * p2.X,
+        return new DocumentPoint(a * p1.X + b * c1.X + c * c2.X + d * p2.X,
                          a * p1.Y + b * c1.Y + c * c2.Y + d * p2.Y);
     }
 
-    private static bool IsZero(Point p) => p.X == 0 && p.Y == 0;
+    private static bool IsZero(DocumentPoint p) => p.X == 0 && p.Y == 0;
 
-    private static double Length(Point p) => Math.Sqrt(p.X * p.X + p.Y * p.Y);
+    private static double Length(DocumentPoint p) => Math.Sqrt(p.X * p.X + p.Y * p.Y);
 
-    private static Point Lerp(Point from, Point to, double t) =>
+    private static DocumentPoint Lerp(DocumentPoint from, DocumentPoint to, double t) =>
         new(from.X + (to.X - from.X) * t, from.Y + (to.Y - from.Y) * t);
 
     /// <summary>A point <paramref name="distance"/> from <paramref name="origin"/> toward <paramref name="toward"/>.</summary>
-    private static Point Along(Point origin, Point toward, double distance)
+    private static DocumentPoint Along(DocumentPoint origin, DocumentPoint toward, double distance)
     {
-        var delta = new Point(toward.X - origin.X, toward.Y - origin.Y);
+        var delta = new DocumentPoint(toward.X - origin.X, toward.Y - origin.Y);
         double length = Length(delta);
         if (length <= 0) return origin;
 
-        return new Point(origin.X + delta.X / length * distance,
+        return new DocumentPoint(origin.X + delta.X / length * distance,
                          origin.Y + delta.Y / length * distance);
     }
 
     /// <summary>True when the two segments cross within both of their spans.</summary>
-    private static bool Crosses(Point a1, Point a2, Point b1, Point b2)
+    private static bool Crosses(DocumentPoint a1, DocumentPoint a2, DocumentPoint b1, DocumentPoint b2)
     {
         if (!Parameters(a1, a2, b1, b2, out double ta, out double tb)) return false;
         return ta is >= 0 and <= 1 && tb is >= 0 and <= 1;
     }
 
     /// <summary>Where two infinite lines meet, or false when they are parallel.</summary>
-    private static bool Meet(Point a1, Point a2, Point b1, Point b2, out Point meeting)
+    private static bool Meet(DocumentPoint a1, DocumentPoint a2, DocumentPoint b1, DocumentPoint b2, out DocumentPoint meeting)
     {
         meeting = default;
         if (!Parameters(a1, a2, b1, b2, out double ta, out _)) return false;
 
-        meeting = new Point(a1.X + (a2.X - a1.X) * ta, a1.Y + (a2.Y - a1.Y) * ta);
+        meeting = new DocumentPoint(a1.X + (a2.X - a1.X) * ta, a1.Y + (a2.Y - a1.Y) * ta);
         return true;
     }
 
     /// <summary>How far along each line the two of them meet.</summary>
-    private static bool Parameters(Point a1, Point a2, Point b1, Point b2,
+    private static bool Parameters(DocumentPoint a1, DocumentPoint a2, DocumentPoint b1, DocumentPoint b2,
                                    out double ta, out double tb)
     {
         ta = tb = 0;

@@ -1,4 +1,3 @@
-using Avalonia;
 using SkiaSharp;
 
 namespace PenDynamicsPaint.Drawing;

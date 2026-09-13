@@ -1,4 +1,3 @@
-using Avalonia;
 using PenDynamicsPaint.Drawing;
 using SkiaSharp;
 using Xunit;
@@ -22,7 +21,7 @@ public class StrokeHistoryCapTests
     {
         h.BeginStroke(BrushSettings.Default, Blue);
         for (int i = 0; i < samples; i++)
-            h.AddSample(new Point(i, i), 0.5, PenOrientation.None, 0.25);
+            h.AddSample(new DocumentPoint(i, i), 0.5, PenOrientation.None, 0.25);
         h.EndStroke();
     }
 
@@ -50,7 +49,7 @@ public class StrokeHistoryCapTests
         for (int i = 0; i < StrokeHistory.MaxStrokes + 1; i++)
         {
             h.BeginStroke(BrushSettings.Default with { Size = i + 1 }, Blue);
-            h.AddSample(new Point(i, i), 0.5, PenOrientation.None, 0.25);
+            h.AddSample(new DocumentPoint(i, i), 0.5, PenOrientation.None, 0.25);
             h.EndStroke();
         }
 
