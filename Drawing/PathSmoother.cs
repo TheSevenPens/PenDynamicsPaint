@@ -97,7 +97,8 @@ public sealed class PathSmoother
     /// before the curve -- it is the pen's signal being steadied, not the brush's response. The
     /// caller runs the result through the brush afterwards.
     /// </remarks>
-    public readonly record struct Filtered(DocumentPoint Position, double RawPressure);
+    public readonly record struct Filtered(DocumentPoint Position, double RawPressure,
+                                          PenOrientation Orientation);
 
     /// <summary>
     /// Filter one sample, returning what the stroke should be taken to have done.
@@ -106,7 +107,8 @@ public sealed class PathSmoother
     /// <param name="smoothing">The brush's settings. A stroke pins its brush, so these are stable.</param>
     public Filtered Next(in StrokeSample sample, StrokeSmoothing smoothing)
     {
-        if (!smoothing.IsEnabled) return new Filtered(sample.Position, sample.RawPressure);
+        if (!smoothing.IsEnabled)
+            return new Filtered(sample.Position, sample.RawPressure, sample.Orientation);
 
         // From the previous filtered position to this raw one, which is the step the weighting
         // walks back over.
@@ -118,7 +120,7 @@ public sealed class PathSmoother
         _history.Add(sample);
 
         if (_history.Count <= MinimumHistory)
-            return new Filtered(sample.Position, sample.RawPressure);
+            return new Filtered(sample.Position, sample.RawPressure, sample.Orientation);
 
         var position = smoothing.SmoothsPosition
             ? WeightedPosition(smoothing.Position, smoothing.TailAggressiveness, sample.Position)
@@ -128,11 +130,20 @@ public sealed class PathSmoother
             ? WeightedPressure(smoothing.Pressure, smoothing.TailAggressiveness, sample.RawPressure)
             : sample.RawPressure;
 
+        var orientation = smoothing.SmoothsTilt
+            ? WeightedOrientation(smoothing.Tilt, smoothing.TailAggressiveness, sample.Orientation)
+            : sample.Orientation;
+
         // The filtered values go into the history, not the raw ones, so the next sample is
         // averaged over outputs. This is what makes the filter settle.
-        _history[^1] = sample with { Position = position, RawPressure = pressure };
+        _history[^1] = sample with
+        {
+            Position = position,
+            RawPressure = pressure,
+            Orientation = orientation,
+        };
 
-        return new Filtered(position, pressure);
+        return new Filtered(position, pressure, orientation);
     }
 
     private DocumentPoint WeightedPosition(double reach, double tail, DocumentPoint fallback)
@@ -164,6 +175,77 @@ public sealed class PathSmoother
         }
 
         return weightSum > 0 ? pressure / weightSum : fallback;
+    }
+
+    /// <summary>
+    /// The pen's orientation, steadied.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Altitude and the two raw tilt axes are plain numbers and are averaged as such. The two
+    /// <b>angles that wrap</b> -- azimuth and twist -- are not: averaging 359 and 1 gives 180,
+    /// which points the opposite way. They are averaged as unit vectors and turned back into an
+    /// angle, the same thing <c>BrushInputTracker</c> does to the direction of travel.
+    /// </para>
+    /// <para>
+    /// Azimuth carries a second weight on top of that: the sine of how far the pen is leaning. Near
+    /// vertical the azimuth is the pole of a spherical coordinate and says almost nothing -- a
+    /// millimetre of wobble swings it through tens of degrees -- so those samples are allowed to
+    /// count for almost nothing rather than being averaged in as though they meant something. A
+    /// stroke drawn entirely upright leaves the resultant at nearly zero length, and then the raw
+    /// reading is the honest answer.
+    /// </para>
+    /// </remarks>
+    private PenOrientation WeightedOrientation(double reach, double tail, PenOrientation fallback)
+    {
+        double altitude = 0, tiltX = 0, tiltY = 0, weightSum = 0;
+        double azimuthX = 0, azimuthY = 0;
+        double twistX = 0, twistY = 0;
+
+        foreach (var (index, weight) in Walk(reach, tail))
+        {
+            var at = _history[index].Orientation;
+
+            weightSum += weight;
+            altitude += weight * at.Altitude;
+            tiltX += weight * at.TiltX;
+            tiltY += weight * at.TiltY;
+
+            // How much this sample's azimuth is worth: none at all with the pen upright, most with
+            // it laid over.
+            double lean = Math.Abs(Math.Sin((90.0 - at.Altitude) * Math.PI / 180.0));
+
+            azimuthX += weight * lean * Math.Cos(at.Azimuth * Math.PI / 180.0);
+            azimuthY += weight * lean * Math.Sin(at.Azimuth * Math.PI / 180.0);
+
+            twistX += weight * Math.Cos(at.Twist * Math.PI / 180.0);
+            twistY += weight * Math.Sin(at.Twist * Math.PI / 180.0);
+        }
+
+        if (weightSum <= 0) return fallback;
+
+        return fallback with
+        {
+            Altitude = altitude / weightSum,
+            TiltX = tiltX / weightSum,
+            TiltY = tiltY / weightSum,
+            Azimuth = Resultant(azimuthX, azimuthY, fallback.Azimuth),
+            Twist = Resultant(twistX, twistY, fallback.Twist),
+        };
+    }
+
+    /// <summary>The angle a summed vector points in, or the raw reading if it cancelled out.</summary>
+    /// <remarks>
+    /// A resultant of nearly zero length means the samples disagreed in every direction, which is
+    /// what a genuinely random angle looks like. Its direction is then noise, and reporting the
+    /// pen's own reading is better than reporting the direction that noise happened to land on.
+    /// </remarks>
+    private static double Resultant(double x, double y, double fallback)
+    {
+        if (x * x + y * y < 1e-9) return fallback;
+
+        double degrees = Math.Atan2(y, x) * 180.0 / Math.PI;
+        return degrees < 0 ? degrees + 360.0 : degrees;
     }
 
     /// <summary>

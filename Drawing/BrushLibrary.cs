@@ -109,7 +109,11 @@ public static class BrushLibrary
             Name = "Tilt charcoal",
             Engine = BrushEngineKind.MyPaint,
             MyPaint = MyPaintBrush.Parse(StockBrushes.TiltCharcoal, "Tilt charcoal"),
-            Smoothing = new StrokeSmoothing { Position = 25 },
+
+            // The one brush in the set whose width follows the pen's lean, so the one that needs
+            // the tilt reach. A longer reach than the path gets: tilt arrives quantised to whole
+            // degrees, and each of those steps is a step in the width of the mark.
+            Smoothing = new StrokeSmoothing { Position = 25, Tilt = 60 },
         },
     ];
 }

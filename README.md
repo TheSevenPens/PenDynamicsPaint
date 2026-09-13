@@ -246,6 +246,31 @@ adding, deleting, reordering or merging a layer is not undoable, and a merge dow
 since the merged pixels cannot be reproduced by replaying the two histories in the order they were
 drawn.
 
+### Filtering tilt
+
+Smoothing has a third reach, for the pen's orientation, independent of the other two -- a brush
+driven by tilt wants it steadied whether or not the line needed help. It was passed through
+untouched until the MyPaint engine gave tilt somewhere to go, which meant the filter was steadying
+the path and the pressure while the third channel wobbled straight through.
+
+Tilt arrives dirtier than position does. Tablets quantise it coarsely, often to whole degrees, so a
+brush mapping declination onto radius turns each step into a visible step in the mark.
+
+**The two angles that wrap are not averaged.** Azimuth and twist run 0 to 360, and the mean of 359
+and 1 is 180 -- pointing the opposite way. Both are averaged as unit vectors and turned back into
+an angle, the same thing the stroke's direction input already does.
+
+**An upright pen's azimuth is not trusted.** Near vertical the azimuth is the pole of a spherical
+coordinate: a millimetre of wobble swings it through tens of degrees. Each sample's azimuth is
+weighted by the sine of how far the pen is leaning, so readings taken upright count for almost
+nothing instead of dragging the answer around. A stroke drawn entirely upright leaves nothing to
+take an angle from, and then the pen's own reading is returned rather than a number invented out of
+an empty sum.
+
+Not a port: libmypaint does not filter tilt and Krita's smoothing does not reach it, so there is no
+upstream behaviour to match -- only the same weighting the other two channels use, applied to a
+signal that needs it more.
+
 ## Saving
 
 The document is saved as **OpenRaster** (`.ora`), a real format rather than one invented here: a
@@ -276,9 +301,10 @@ brush loader makes.
 
 ## What is deliberately not here
 
-**No general dynamics matrix.** Pressure drives size, opacity or both, through one curve. Tilt,
-speed, direction and randomness as inputs, each with its own curve onto each output, is what
-libmypaint brings.
+**No general dynamics matrix for the two native engines.** Pressure drives size, opacity or both,
+through one curve. The MyPaint engine has the full matrix -- ten inputs, each with its own curve
+onto each honoured setting -- so the open question is whether the other two should grow the same
+thing or simply be reached through a brush file.
 
 **No stabilizer.** Krita's other smoothing mode -- the one that drags the brush behind the cursor on
 a string -- is driven by a timer rather than by samples, emitting points while the pen is still so
