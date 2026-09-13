@@ -658,6 +658,153 @@ public class MyPaintEngineTests
         Assert.InRange(firstDark, StepX + 1, StepX + 30);
     }
 
+    /// <summary>A nib: hard dabs, a given aspect ratio and a given angle for its long axis.</summary>
+    private static MyPaintBrush Nib(double ratio, double angle, double perRadius = 6.0) =>
+        MyPaintBrush.Parse($$"""
+            {
+              "version": 3,
+              "settings": {
+                "radius_logarithmic": { "base_value": 3.2 },
+                "opaque": { "base_value": 1.0 },
+                "opaque_multiply": { "base_value": 1.0 },
+                "opaque_linearize": { "base_value": 0.0 },
+                "hardness": { "base_value": 1.0 },
+                "elliptical_dab_ratio": { "base_value": {{ratio}} },
+                "elliptical_dab_angle": { "base_value": {{angle}} },
+                "dabs_per_actual_radius": { "base_value": {{perRadius}} }
+              }
+            }
+            """, "nib");
+
+    /// <summary>How thick a straight horizontal stroke comes out, measured across it.</summary>
+    private static int ThicknessOfAHorizontalStroke(MyPaintBrush brush)
+    {
+        using var session = new PaintSession(600, 400) { Compositing = StrokeCompositing.Direct };
+        var settings = Using(brush);
+
+        for (int i = 0; i < 60; i++) session.AddSample(80 + i * 7, 200, 0.8, settings);
+        session.EndStroke();
+
+        return InkHeight(session, 300);
+    }
+
+    [Fact]
+    public void An_elliptical_dab_is_narrower_across_the_nib()
+    {
+        // radius_logarithmic 3.2 is a radius of about 24.5, so a round dab draws a stroke about 49
+        // across. The ratio squeezes the short axis and leaves the long one alone, which is the
+        // half that is easy to get backwards: it makes a narrower nib, not a bigger dab.
+        int round = ThicknessOfAHorizontalStroke(Nib(ratio: 1, angle: 0));
+        int flat = ThicknessOfAHorizontalStroke(Nib(ratio: 3, angle: 0));
+
+        Assert.InRange(round, 44, 56);
+
+        // A third of it, give or take the antialiased rim at each edge.
+        Assert.InRange(flat, 13, 23);
+    }
+
+    [Fact]
+    public void The_dab_angle_turns_the_nib()
+    {
+        // The same flattened dab stood on end. A brush that read the ratio and ignored the angle
+        // would draw both of these the same way, and the test above alone would not notice.
+        int along = ThicknessOfAHorizontalStroke(Nib(ratio: 3, angle: 0));
+        int across = ThicknessOfAHorizontalStroke(Nib(ratio: 3, angle: 90));
+
+        Assert.True(across > along * 2,
+            $"turning the nib should widen the stroke: {along} px against {across} px");
+
+        // And 45 degrees lands between the two rather than snapping to one of them, which is what
+        // separates a real rotation from a test of whether the angle is nearer 0 or 90.
+        int diagonal = ThicknessOfAHorizontalStroke(Nib(ratio: 3, angle: 45));
+        Assert.InRange(diagonal, along + 4, across - 4);
+    }
+
+    [Fact]
+    public void The_nib_leans_the_way_libmypaint_leans_it()
+    {
+        // Which way 45 degrees points. Thickness alone cannot say: a horizontal stroke is squeezed
+        // by the same amount whether the nib leans one way or the other, so both signs pass the
+        // test above. Running the stroke diagonally is what separates them.
+        int Ink(int dy)
+        {
+            using var session = new PaintSession(600, 600) { Compositing = StrokeCompositing.Direct };
+            var settings = Using(Nib(ratio: 4, angle: 45));
+
+            for (int i = 0; i < 50; i++)
+                session.AddSample(150 + i * 6, 300 + dy * i * 6, 0.8, settings);
+            session.EndStroke();
+
+            int n = 0;
+            for (int x = 0; x < 600; x++) n += InkHeight(session, x);
+            return n;
+        }
+
+        // libmypaint's long axis at 45 degrees runs down and to the right, so a stroke drawn that
+        // way is dragging the nib along its length and leaves a narrow trail. Drawn the other way
+        // the nib is broadside to the travel and leaves a wide one.
+        int alongTheNib = Ink(1);
+        int broadside = Ink(-1);
+
+        Assert.True(broadside > alongTheNib * 2,
+            $"the nib leans the wrong way: {alongTheNib} px of ink along it, {broadside} across");
+    }
+
+    [Fact]
+    public void Dabs_pack_closer_across_the_nib_than_along_it()
+    {
+        // libmypaint stretches the step by the aspect ratio across the narrow axis before counting
+        // dabs into it, so spacing is measured in the dab's own metric rather than on the page.
+        // That is the difference between a nib and an oval stamp: dragged sideways it lays dabs as
+        // densely as its narrow width needs, and dragged along its length it does not waste them.
+        (int Marks, int Ink) Measure(bool vertical)
+        {
+            using var session = new PaintSession(500, 500) { Compositing = StrokeCompositing.Direct };
+
+            // A third of a dab per radius, so the gap is three radii and the dabs land clear of one
+            // another along the nib -- there is something to count rather than one smear.
+            var settings = Using(Nib(ratio: 4, angle: 0, perRadius: 0.3));
+
+            for (int i = 0; i < 80; i++)
+                if (vertical) session.AddSample(250, 90 + i * 4, 0.8, settings);
+                else session.AddSample(90 + i * 4, 250, 0.8, settings);
+            session.EndStroke();
+
+            int marks = 0;
+            bool inMark = false;
+            for (int k = 0; k < 500; k++)
+            {
+                var pixel = vertical ? session.Bitmap.GetPixel(250, k)
+                                     : session.Bitmap.GetPixel(k, 250);
+                bool ink = pixel != SKColors.White;
+                if (ink && !inMark) marks++;
+                inMark = ink;
+            }
+
+            int total = 0;
+            for (int x = 0; x < 500; x++) total += InkHeight(session, x);
+            return (marks, total);
+        }
+
+        // Angle 0 lays the long axis horizontal, so a vertical stroke crosses the narrow one.
+        var along = Measure(vertical: false);
+        var across = Measure(vertical: true);
+
+        // Counting separate marks says they really are distinct dabs rather than one smear. It is
+        // not enough on its own: dabs packed closer than their own width merge into a single run,
+        // so the count can fall as the spacing tightens. The first version of this test compared
+        // only the counts and passed with the stretch applied to the wrong axis, where the dabs
+        // along the nib overlapped into one mark and so counted as fewer rather than more.
+        Assert.InRange(along.Marks, 2, 6);
+        Assert.InRange(across.Marks, 9, 22);
+
+        // Ink is the measure that only goes one way: more dabs over the same travel is more ink,
+        // whether or not they have started to touch.
+        Assert.True(across.Ink > along.Ink * 2.5,
+            $"dabs should pack closer across the nib: {along.Ink} px of ink along it against " +
+            $"{across.Ink} across, from {along.Marks} and {across.Marks} separate marks");
+    }
+
     [Fact]
     public void A_stroke_records_the_brush_so_an_undo_replays_it()
     {

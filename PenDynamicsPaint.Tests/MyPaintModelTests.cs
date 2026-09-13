@@ -140,7 +140,7 @@ public class MyPaintModelTests
                                     "inputs": { "pressure": [[0.0, 0.0], [1.0, 1.0]] } },
             "hardness":           { "base_value": 0.42, "inputs": {} },
             "smudge":             { "base_value": 0.6, "inputs": {} },
-            "elliptical_dab_ratio": { "base_value": 1.0, "inputs": {} },
+            "anti_aliasing":      { "base_value": 1.0, "inputs": {} },
             "offset_by_random":   { "base_value": 0.0,
                                     "inputs": { "gridmap_x": [[0.0, 0.0], [1.0, 1.0]] } }
           }
@@ -187,8 +187,10 @@ public class MyPaintModelTests
         Assert.Contains("smudge", brush.Ignored);
         Assert.Contains("offset_by_random by gridmap_x", brush.Ignored);
 
-        // And a setting sitting at a value that does nothing is not worth reporting.
-        Assert.DoesNotContain("elliptical_dab_ratio", brush.Ignored);
+        // And a setting sitting at its own default is not worth reporting, however far from zero
+        // that default happens to be. anti_aliasing defaults to 1: testing for "non-zero" instead
+        // of "not the default" reports it as a shortfall when the file asked for nothing at all.
+        Assert.DoesNotContain("anti_aliasing", brush.Ignored);
     }
 
     [Fact]

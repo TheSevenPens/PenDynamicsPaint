@@ -45,6 +45,18 @@ public enum MyPaintSetting
     /// <summary>Where the dab stops being solid and starts fading, as a fraction of its radius.</summary>
     Hardness,
 
+    /// <summary>
+    /// How much longer the dab is than it is wide. 1 is round; below 1 is treated as round.
+    /// </summary>
+    /// <remarks>
+    /// The long axis keeps the dab's radius and the short one is that divided by this, so raising
+    /// it makes a narrower nib rather than a bigger one.
+    /// </remarks>
+    EllipticalDabRatio,
+
+    /// <summary>Which way the long axis points, in degrees. Only meaningful above a ratio of 1.</summary>
+    EllipticalDabAngle,
+
     /// <summary>Dabs per radius of travel, measured against the brush's base radius.</summary>
     DabsPerBasicRadius,
 
@@ -146,6 +158,8 @@ public sealed class MyPaintBrush
             [MyPaintSetting.OpaqueMultiply] = 0.0f,
             [MyPaintSetting.OpaqueLinearize] = 0.9f,
             [MyPaintSetting.Hardness] = 0.8f,
+            [MyPaintSetting.EllipticalDabRatio] = 1.0f,
+            [MyPaintSetting.EllipticalDabAngle] = 90.0f,
             [MyPaintSetting.DabsPerBasicRadius] = 0.0f,
             [MyPaintSetting.DabsPerActualRadius] = 2.0f,
             [MyPaintSetting.OffsetByRandom] = 0.0f,
@@ -249,6 +263,8 @@ public sealed class MyPaintBrush
             ["opaque_multiply"] = MyPaintSetting.OpaqueMultiply,
             ["opaque_linearize"] = MyPaintSetting.OpaqueLinearize,
             ["hardness"] = MyPaintSetting.Hardness,
+            ["elliptical_dab_ratio"] = MyPaintSetting.EllipticalDabRatio,
+            ["elliptical_dab_angle"] = MyPaintSetting.EllipticalDabAngle,
             ["dabs_per_basic_radius"] = MyPaintSetting.DabsPerBasicRadius,
             ["dabs_per_actual_radius"] = MyPaintSetting.DabsPerActualRadius,
             ["offset_by_random"] = MyPaintSetting.OffsetByRandom,
@@ -294,8 +310,8 @@ public sealed class MyPaintBrush
     /// Settings and inputs the file asked for that this application does not act on.
     /// </summary>
     /// <remarks>
-    /// Kept so the shortfall can be shown rather than guessed at. A brush that relies on smudge or
-    /// elliptical dabs will not look right here, and this is what says so.
+    /// Kept so the shortfall can be shown rather than guessed at. A brush that relies on smudge
+    /// will not look right here, and this is what says so.
     /// </remarks>
     public IReadOnlyList<string> Ignored { get; }
 

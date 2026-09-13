@@ -178,9 +178,20 @@ Dabs fade by libmypaint's own profile: two straight lines in the *square* of the
 which is a curve in the radius and so is sampled into a gradient rather than handed over as two
 stops.
 
-**What reaches the mark:** radius, opacity, hardness, spacing, the pile-up correction, and the two
-random offsets. **What does not:** elliptical dabs, smudge, colour dynamics, tracking, and the
+**What reaches the mark:** radius, opacity, hardness, spacing, the pile-up correction, elliptical
+dabs, and the two random offsets. **What does not:** smudge, colour dynamics, tracking, and the
 eraser.
+
+Elliptical dabs are what make a chisel nib: `elliptical_dab_ratio` keeps the dab's radius on its
+long axis and divides the short one by the ratio, so raising it narrows the nib rather than
+enlarging it, and `elliptical_dab_angle` turns it. The calligraphy brush is a 5.46:1 nib at 46
+degrees, and draws a hairline along that diagonal and a broad stroke across it.
+
+The part worth knowing is that **an elliptical dab measures spacing in its own metric**. libmypaint
+stretches the step by the aspect ratio across the narrow axis before counting dabs into it, so a
+nib dragged sideways lays them closer together than the same nib drawn along its length. That is
+the difference between a nib and an oval stamp, and getting it wrong leaves gaps in exactly the
+strokes a calligraphy brush is for.
 
 The pile-up correction is `opaque_linearize`, and it is worth calling out because its default is
 0.9 rather than 0 -- so it applies to nearly every brush file whether or not the file mentions it.
