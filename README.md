@@ -246,6 +246,34 @@ adding, deleting, reordering or merging a layer is not undoable, and a merge dow
 since the merged pixels cannot be reproduced by replaying the two histories in the order they were
 drawn.
 
+## Saving
+
+The document is saved as **OpenRaster** (`.ora`), a real format rather than one invented here: a
+zip holding one PNG per layer and a `stack.xml` describing the stack. It is what MyPaint saves, and
+Krita and GIMP read it, so a document written here opens in the applications whose brushes are
+driving it. `Export` writes a flattened PNG instead, for anything that wants a picture rather than
+a document.
+
+Written to version 0.0.3 of the specification. Three parts of that exist for readers other than
+this one, and nothing here would notice them missing, so they are tested against the file rather
+than through a round trip: `mimetype` first in the archive and stored uncompressed, so a reader can
+identify the file from its leading bytes; a full-size `mergedimage.png`, which is what lets a viewer
+show the image without understanding layers; and a thumbnail no larger than 256 square.
+
+The same goes for the order of the stack. OpenRaster lists layers **top first** and this
+application's stack has index 0 at the bottom, so the two are reversed on the way in and out.
+Getting that backwards passes every round trip -- it inverts twice and cancels -- while producing a
+file that opens upside down everywhere else.
+
+**The undo history is not saved.** A loaded layer's pixels are baked as the replay baseline, so an
+undo after opening a file steps back through that session's own strokes and stops rather than
+erasing work that came from disk. Saving the history would mean saving the brushes that drew it,
+which is a format decision of its own.
+
+A document that asks for something unimplemented -- a layer group, a composite mode other than
+normal -- still opens, and what went unused is reported in the status line. The same bargain the
+brush loader makes.
+
 ## What is deliberately not here
 
 **No general dynamics matrix.** Pressure drives size, opacity or both, through one curve. Tilt,

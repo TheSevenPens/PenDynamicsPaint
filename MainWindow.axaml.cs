@@ -330,6 +330,151 @@ public partial class MainWindow : Window
         }
     }
 
+    // -- The document on disk ------------------------------------
+
+    /// <summary>Where the document came from, so Save can go back there without asking.</summary>
+    /// <remarks>
+    /// Cleared by nothing: exporting a PNG does not change it, because an export is not the
+    /// document. Saving somewhere new moves it, which is what Save then follows.
+    /// </remarks>
+    private IStorageFile? _documentFile;
+
+    private static readonly FilePickerFileType OpenRasterType =
+        new("OpenRaster document") { Patterns = ["*.ora"], MimeTypes = ["image/openraster"] };
+
+    private static readonly FilePickerFileType PngType =
+        new("PNG image") { Patterns = ["*.png"], MimeTypes = ["image/png"] };
+
+    private async void Open_Click(object? sender, RoutedEventArgs e) => await OpenDocument();
+
+    private async void Save_Click(object? sender, RoutedEventArgs e) => await SaveDocument();
+
+    private async void Export_Click(object? sender, RoutedEventArgs e) => await ExportImage();
+
+    private async Task OpenDocument()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open a document",
+            AllowMultiple = false,
+            FileTypeFilter = [OpenRasterType],
+        });
+
+        if (files.Count == 0) return;
+
+        var file = files[0];
+        try
+        {
+            OpenRaster.Loaded loaded;
+            await using (var stream = await file.OpenReadAsync())
+            {
+                // Read into memory first. A zip is read by seeking to its directory at the end,
+                // and a picker's stream need not be seekable -- on some backends it is a forward
+                // pipe, where this fails on the file rather than on the format.
+                using var memory = new MemoryStream();
+                await stream.CopyToAsync(memory);
+                memory.Position = 0;
+
+                loaded = OpenRaster.Load(memory);
+            }
+
+            AdoptDocument(loaded.Session, file);
+
+            StatusLabel.Text = loaded.Ignored.Count == 0
+                ? $"{file.Name}: opened"
+                : $"{file.Name}: opened, {string.Join(", ", loaded.Ignored)} not honoured";
+        }
+        catch (Exception error) when (error is FormatException or IOException
+                                        or InvalidDataException)
+        {
+            StatusLabel.Text = $"{file.Name}: {error.Message}";
+        }
+    }
+
+    /// <summary>Put a freshly read document in front of the pen, and let the old one go.</summary>
+    /// <remarks>
+    /// The session is replaced rather than refilled, so everything holding the old one has to be
+    /// pointed at the new one: the view, the layer list, and the compositing choice, which belongs
+    /// to the application rather than to the file and so is re-applied rather than carried over.
+    /// </remarks>
+    private void AdoptDocument(PaintSession session, IStorageFile? from)
+    {
+        var old = _paint;
+
+        _paint = session;
+        _paint.Compositing = old.Compositing;
+
+        PaintView.Session = _paint;
+        _documentFile = from;
+
+        RebuildLayerList();
+        ShowSelectedLayer();
+        PaintView.Invalidate();
+
+        old.Dispose();
+    }
+
+    private async Task SaveDocument()
+    {
+        var file = _documentFile ?? await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save the document",
+            DefaultExtension = "ora",
+            SuggestedFileName = "untitled.ora",
+            FileTypeChoices = [OpenRasterType],
+        });
+
+        if (file is null) return;
+
+        try
+        {
+            // Truncated explicitly. A picker hands back a stream positioned at the start but does
+            // not shorten the file, so saving a smaller document over a larger one would leave the
+            // tail of the old one behind -- and a zip read from the end would find that tail.
+            await using var stream = await file.OpenWriteAsync();
+            stream.SetLength(0);
+
+            OpenRaster.Save(_paint, stream);
+
+            _documentFile = file;
+            StatusLabel.Text = $"{file.Name}: saved";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            StatusLabel.Text = $"{file.Name}: {error.Message}";
+        }
+    }
+
+    private async Task ExportImage()
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export a flattened image",
+            DefaultExtension = "png",
+            SuggestedFileName = Path.GetFileNameWithoutExtension(_documentFile?.Name ?? "untitled")
+                                + ".png",
+            FileTypeChoices = [PngType],
+        });
+
+        if (file is null) return;
+
+        try
+        {
+            await using var stream = await file.OpenWriteAsync();
+            stream.SetLength(0);
+
+            OpenRaster.ExportPng(_paint, stream);
+
+            // Deliberately not _documentFile: a PNG is a picture of the document, not the document,
+            // and letting Save follow it here would quietly throw the layers away on the next one.
+            StatusLabel.Text = $"{file.Name}: exported";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            StatusLabel.Text = $"{file.Name}: {error.Message}";
+        }
+    }
+
     // -- Keyboard -------------------------------------------------
 
     /// <summary>
@@ -354,6 +499,21 @@ public partial class MainWindow : Window
             case Key.Space:
                 PaintView.PanModifierHeld = true;
                 e.Handled = true;
+                break;
+
+            case Key.O when e.KeyModifiers.HasFlag(KeyModifiers.Control):
+                e.Handled = true;
+                _ = OpenDocument();
+                break;
+
+            case Key.S when e.KeyModifiers.HasFlag(KeyModifiers.Control):
+                e.Handled = true;
+                _ = SaveDocument();
+                break;
+
+            case Key.E when e.KeyModifiers.HasFlag(KeyModifiers.Control):
+                e.Handled = true;
+                _ = ExportImage();
                 break;
 
             case Key.Z when e.KeyModifiers.HasFlag(KeyModifiers.Control):

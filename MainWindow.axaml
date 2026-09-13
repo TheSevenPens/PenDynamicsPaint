@@ -83,6 +83,22 @@
                     <ComboBox x:Name="CompositingCombo" Width="110" Height="30" VerticalAlignment="Center" />
                 </StackPanel>
 
+<!-- The document's own commands, kept apart from the two settings beside them: these act
+                     on what has been drawn rather than on how the next mark is made. Open and Save
+                     are the layered format; Export flattens to a PNG for anything that wants a
+                     picture rather than a document. -->
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button x:Name="OpenButton" Content="Open" Height="30" Padding="10,0"
+                            FontSize="12" VerticalAlignment="Center" Click="Open_Click"
+                            ToolTip.Tip="Open an OpenRaster document  (Ctrl+O)" />
+                    <Button x:Name="SaveButton" Content="Save" Height="30" Padding="10,0"
+                            FontSize="12" VerticalAlignment="Center" Click="Save_Click"
+                            ToolTip.Tip="Save as OpenRaster, keeping the layers  (Ctrl+S)" />
+                    <Button x:Name="ExportButton" Content="Export" Height="30" Padding="10,0"
+                            FontSize="12" VerticalAlignment="Center" Click="Export_Click"
+                            ToolTip.Tip="Export the flattened image as a PNG  (Ctrl+E)" />
+                </StackPanel>
+
                 <Border Background="{DynamicResource Pdl.ActiveFill}" CornerRadius="4" Padding="8,3"
                         VerticalAlignment="Center">
                     <TextBlock x:Name="StatusLabel" FontSize="12" VerticalAlignment="Center"
