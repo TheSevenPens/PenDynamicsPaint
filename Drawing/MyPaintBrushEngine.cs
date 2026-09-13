@@ -16,9 +16,9 @@ namespace PenDynamicsPaint.Drawing;
 /// gap.
 /// </para>
 /// <para>
-/// <b>What is honoured, and what is not.</b> Radius, opacity, hardness, spacing and the two
-/// random offsets reach the mark. Elliptical dabs, smudge, colour dynamics, tracking and the
-/// eraser do not: the first two need a different dab shape and a read of the canvas, and the rest
+/// <b>What is honoured, and what is not.</b> Radius, both opacities, the pile-up correction,
+/// hardness, spacing, elliptical dabs and the two random offsets reach the mark. Smudge, colour
+/// dynamics, tracking and the eraser do not: smudge needs a read of the canvas, and the rest
 /// belong to parts of the pipeline that have their own answers here already. A brush file that
 /// leans on any of them still loads, and says so through <see cref="MyPaintBrush.Ignored"/>.
 /// </para>
@@ -123,11 +123,17 @@ public sealed class MyPaintBrushEngine : IBrushEngine
 
         double reached = 0;
 
+        // Constant along the segment, which is what lets the spacing rule fold the dab's own
+        // metric into a single factor rather than integrating along the path.
+        double ux = length > 0 ? (to.Position.X - from.Position.X) / length : 0;
+        double uy = length > 0 ? (to.Position.Y - from.Position.Y) / length : 0;
+
         // Copied out of the `in` parameters, which a lambda may not capture. A sample is a small
         // readonly struct, so this costs nothing worth measuring.
         StrokeSample start = from, end = to;
 
-        foreach (double at in _spacing.Walk(length, d => SpacingAt(d, length, start, end, mypaint)))
+        foreach (double at in _spacing.Walk(length,
+                     d => SpacingAt(d, length, start, end, mypaint, ux, uy)))
         {
             double t = length > 0 ? at / length : 0;
             var here = Lerp(from.Position, to.Position, t);
@@ -152,8 +158,10 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// measures against the brush's base radius and one against the dab's current radius, so a
     /// brush that shrinks under pressure can be told whether its dabs should close up with it.
     /// </remarks>
+    /// <param name="ux">Unit direction of travel, x. See the elliptical branch below.</param>
+    /// <param name="uy">Unit direction of travel, y.</param>
     private double SpacingAt(double distance, double length, in StrokeSample from,
-                             in StrokeSample to, MyPaintBrush brush)
+                             in StrokeSample to, MyPaintBrush brush, double ux, double uy)
     {
         double t = length > 0 ? distance / length : 0;
         var sample = Blend(from, to, t);
@@ -172,7 +180,51 @@ public sealed class MyPaintBrushEngine : IBrushEngine
 
         // No spacing setting at all would place dabs forever; the walk's own floor would catch it,
         // but a dab per radius is a more useful answer than a dab every half unit.
-        return gap == double.MaxValue ? radius : gap;
+        if (gap == double.MaxValue) gap = radius;
+
+        // An elliptical dab measures distance in its own metric: libmypaint stretches the step by
+        // the aspect ratio across the narrow axis before counting dabs into it, so a nib dragged
+        // sideways lays them closer together than the same nib drawn along its length. That is the
+        // difference between a nib and an oval stamp, and it is why the ratio is worked out before
+        // the spacing rather than at the dab.
+        //
+        // The walk measures real distance, so the stretch is divided out of the gap instead. Same
+        // dabs in the same places: the segment is straight, so the factor is constant along it.
+        double stretch = Stretch(brush, inputs, ux, uy);
+        return stretch > 0 ? gap / stretch : gap;
+    }
+
+    /// <summary>
+    /// How much longer a step along <paramref name="ux"/>, <paramref name="uy"/> is in the dab's
+    /// own metric than on the page. 1 for a round dab, up to the aspect ratio across the nib.
+    /// </summary>
+    private static double Stretch(MyPaintBrush brush, in BrushInputs inputs, double ux, double uy)
+    {
+        double ratio = Ratio(brush, inputs);
+        if (ratio <= 1) return 1;
+
+        (double cs, double sn) = AxisOf(brush, inputs);
+
+        double across = (uy * cs - ux * sn) * ratio;
+        double along = uy * sn + ux * cs;
+
+        return Math.Sqrt(across * across + along * along);
+    }
+
+    /// <summary>The dab's aspect ratio, never below 1 -- libmypaint treats a smaller one as round.</summary>
+    private static double Ratio(MyPaintBrush brush, in BrushInputs inputs) =>
+        Math.Max(1.0, brush[MyPaintSetting.EllipticalDabRatio].ValueFor(inputs));
+
+    /// <summary>Cosine and sine of the long axis's angle.</summary>
+    /// <remarks>
+    /// The angle is used as the file gives it. libmypaint folds it into a half turn first, which
+    /// changes nothing: shifting by 180 degrees negates both the cosine and the sine, and the
+    /// geometry only ever uses their squares or a rotation of a shape with the same symmetry.
+    /// </remarks>
+    private static (double Cos, double Sin) AxisOf(MyPaintBrush brush, in BrushInputs inputs)
+    {
+        double radians = brush[MyPaintSetting.EllipticalDabAngle].ValueFor(inputs) * Math.PI / 180.0;
+        return (Math.Cos(radians), Math.Sin(radians));
     }
 
     private static double Radius(MyPaintBrush brush, in BrushInputs inputs) =>
@@ -203,18 +255,39 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         _paint.Blender = Blender;
         _paint.Color = color.WithAlpha((byte)Math.Clamp(alpha * 255, 0, 255));
 
-        // The shader carries the falloff at full strength and the paint's own alpha scales it.
-        // Building the dab's alpha into the stops as well would apply it twice, which squares it:
-        // a dab asked for at half strength would arrive at a quarter.
-        _paint.Shader = hardness >= 1f ? null : Falloff(at, radius, color, hardness);
+        // The long axis keeps the radius and the short one is squeezed, which is why the bounds
+        // below still hold: an elliptical dab reaches no further than the round one it came from.
+        double ratio = Ratio(brush, inputs);
+        bool elliptical = ratio > 1.0001;
 
         var touched = new SKRect((float)(at.X - radius), (float)(at.Y - radius),
                                  (float)(at.X + radius), (float)(at.Y + radius));
         LastSegmentBounds = LastSegmentBounds.IsEmpty ? touched
                                                       : SKRect.Union(LastSegmentBounds, touched);
 
-        canvas.DrawCircle((float)at.X, (float)at.Y, (float)radius, _paint);
+        // Drawn as a round dab in a squeezed frame rather than as an ellipse. The falloff is a
+        // sampled radial gradient, and a gradient goes through the canvas transform with the shape
+        // it fills -- so this squeezes the softness along with the outline, which an ellipse drawn
+        // with a round gradient would not.
+        if (elliptical)
+        {
+            canvas.Save();
+            canvas.Translate((float)at.X, (float)at.Y);
+            canvas.RotateDegrees((float)brush[MyPaintSetting.EllipticalDabAngle].ValueFor(inputs));
+            canvas.Scale(1f, (float)(1.0 / ratio));
+        }
+
+        var centre = elliptical ? SKPoint.Empty : new SKPoint((float)at.X, (float)at.Y);
+
+        // The shader carries the falloff at full strength and the paint's own alpha scales it.
+        // Building the dab's alpha into the stops as well would apply it twice, which squares it:
+        // a dab asked for at half strength would arrive at a quarter.
+        _paint.Shader = hardness >= 1f ? null : Falloff(centre, radius, color, hardness);
+
+        canvas.DrawCircle(centre.X, centre.Y, (float)radius, _paint);
+
         _paint.Shader = null;
+        if (elliptical) canvas.Restore();
     }
 
     /// <summary>Dab alpha: the two opacity settings, multiplied, then thinned for the pile-up.</summary>
@@ -277,8 +350,10 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// plausible and is the wrong shape, which is worse than one that looks wrong.
     /// </para>
     /// </remarks>
+    /// <param name="centre">Where the dab is <b>in the canvas's current frame</b>, which for an
+    /// elliptical dab is the origin of the squeezed one rather than a point on the page.</param>
     /// <param name="color">The ink, at full alpha. The dab's own alpha is the paint's.</param>
-    private SKShader Falloff(DocumentPoint at, double radius, SKColor color, float hardness)
+    private SKShader Falloff(SKPoint centre, double radius, SKColor color, float hardness)
     {
         hardness = Math.Max(hardness, 1e-4f);
 
@@ -300,8 +375,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         }
 
         return SKShader.CreateRadialGradient(
-            new SKPoint((float)at.X, (float)at.Y), (float)radius,
-            _stopColors, _stopPositions, SKShaderTileMode.Clamp);
+            centre, (float)radius, _stopColors, _stopPositions, SKShaderTileMode.Clamp);
     }
 
     /// <summary>A rough normal deviate, for throwing a dab off the path.</summary>
