@@ -79,6 +79,19 @@ public partial class MainWindow : Window
                     : PressureControl.Size,
             };
 
+        EngineCombo.ItemsSource = new[] { "Taper", "Dabs" };
+        EngineCombo.SelectedIndex = 0;
+        EngineCombo.SelectionChanged += (_, _) => ApplyEngine();
+
+        SpacingSlider.PropertyChanged += (_, e) =>
+        {
+            if (e.Property.Name != "Value") return;
+            if (_dabs is not null) _dabs.Spacing = SpacingSlider.Value;
+            SpacingLabel.Text = $"{SpacingSlider.Value:F2}";
+        };
+        SpacingLabel.Text = $"{SpacingSlider.Value:F2}";
+        SpacingPanel.IsVisible = false;
+
         CompositingCombo.ItemsSource = new[] { "Wash", "Direct" };
         CompositingCombo.SelectedIndex = 0;
         CompositingCombo.SelectionChanged += (_, _) =>
@@ -101,6 +114,32 @@ public partial class MainWindow : Window
             _penSession?.Dispose();
             _paint.Dispose();
         };
+    }
+
+    /// <summary>The dab engine, while it is the one in use. Kept so its spacing can be changed.</summary>
+    private DabBrushEngine? _dabs;
+
+    /// <summary>Hand the session whichever engine the brush selector names.</summary>
+    /// <remarks>
+    /// A fresh instance each time rather than two kept side by side: the session takes ownership
+    /// and disposes what it replaces, and an engine holds a paint and a path that should not
+    /// outlive its use.
+    /// </remarks>
+    private void ApplyEngine()
+    {
+        bool dabs = EngineCombo.SelectedIndex == 1;
+        SpacingPanel.IsVisible = dabs;
+
+        if (dabs)
+        {
+            _dabs = new DabBrushEngine { Spacing = SpacingSlider.Value };
+            _paint.UseEngine(_dabs);
+        }
+        else
+        {
+            _dabs = null;
+            _paint.UseEngine(new RoundBrushEngine());
+        }
     }
 
     private void PopulateApis()
