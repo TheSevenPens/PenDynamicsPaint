@@ -58,6 +58,24 @@ public interface IBrushEngine : IDisposable
     /// </remarks>
     bool AlphaDarkenWithinStroke => true;
 
+    /// <summary>Where the last <see cref="DrawSegment"/> put ink.</summary>
+    /// <remarks>
+    /// <para>
+    /// Reported by the engine rather than worked out by the caller, because only the engine knows
+    /// how big its marks are. The caller used to compute this from
+    /// <see cref="BrushSettings.StrokeWidthFor"/>, which is the size slider -- true for an engine
+    /// whose mark is the slider's width, and wrong for one that decides its own. A MyPaint brush
+    /// at <c>radius_logarithmic 4.7</c> lays dabs 110 units across whatever the slider says, so
+    /// the region the composite was told to refresh was a tenth of the region that had changed.
+    /// </para>
+    /// <para>
+    /// <b>Overstating this is safe and understating it is not.</b> Too large means compositing
+    /// pixels that did not need it; too small leaves stale ones on screen, which is what the
+    /// airbrush showed as rectangular blocks of older paint.
+    /// </para>
+    /// </remarks>
+    SKRect LastSegmentBounds { get; }
+
     /// <summary>A stroke is starting. Clear anything carried between segments.</summary>
     /// <remarks>
     /// <para>
@@ -128,6 +146,10 @@ public sealed class RoundBrushEngine : IBrushEngine
     /// <inheritdoc />
     public SKBlender? Blender { get; set; }
 
+    /// <inheritdoc />
+    /// <remarks>The taper's own outline, which is exactly the shape that was filled.</remarks>
+    public SKRect LastSegmentBounds { get; private set; }
+
     /// <summary>Nothing to reset: every mark is decided by the two samples it is drawn from.</summary>
     /// <remarks>
     /// Empty on purpose rather than absent. That this engine needs no per-stroke state is a
@@ -160,6 +182,7 @@ public sealed class RoundBrushEngine : IBrushEngine
             new SKPoint((float)from.Position.X, (float)from.Position.Y), widthFrom / 2f,
             new SKPoint((float)to.Position.X, (float)to.Position.Y), widthTo / 2f);
 
+        LastSegmentBounds = _path.Bounds;
         canvas.DrawPath(_path, _paint);
     }
 

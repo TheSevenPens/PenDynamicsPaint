@@ -420,7 +420,7 @@ public sealed class PaintSession : IDisposable
         {
             _strokeEngine!.DrawSegment(target, from, point, brush, _strokeColor,
                                        PressureChannel.Processed);
-            MarkStale(SegmentBounds(from, point, brush));
+            MarkStale(_strokeEngine.LastSegmentBounds);
         }
 
         _lastDrawn = point;
@@ -524,28 +524,6 @@ public sealed class PaintSession : IDisposable
 
         if (engine is not null) engine.Blender = null;
         _layerActive = false;
-    }
-
-    /// <summary>
-    /// What region one segment can put ink in, as a bound rather than an exact answer.
-    /// </summary>
-    /// <remarks>
-    /// The two endpoints, grown by the larger of the two half-widths and the antialiasing margin.
-    /// Every engine here places marks between the endpoints at a pressure between the two, so the
-    /// larger half-width bounds all of them. <b>Understating this leaves stale pixels in the
-    /// composite</b>, which is why <c>LayerCompositingTests</c> compares incremental compositing
-    /// against a full recomposite rather than trusting the arithmetic.
-    /// </remarks>
-    private static SKRect SegmentBounds(in StrokeSample from, in StrokeSample to, BrushSettings brush)
-    {
-        float radius = Math.Max(brush.StrokeWidthFor(from.ProcessedPressure),
-                                brush.StrokeWidthFor(to.ProcessedPressure)) / 2f;
-
-        return new SKRect(
-            (float)Math.Min(from.Position.X, to.Position.X) - radius,
-            (float)Math.Min(from.Position.Y, to.Position.Y) - radius,
-            (float)Math.Max(from.Position.X, to.Position.X) + radius,
-            (float)Math.Max(from.Position.Y, to.Position.Y) + radius);
     }
 
     private void MarkStale(SKRect region)

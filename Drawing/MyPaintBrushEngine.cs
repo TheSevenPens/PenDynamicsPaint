@@ -92,10 +92,21 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     public void EndStroke() { }
 
     /// <inheritdoc />
+    /// <inheritdoc />
+    /// <remarks>
+    /// Accumulated from the dabs actually placed, because the radius of any one of them is not
+    /// known until its inputs have been worked out -- speed, tilt and the custom input all bend
+    /// it, and the custom input carries state from the dab before. Nothing short of placing them
+    /// can say where they land.
+    /// </remarks>
+    public SKRect LastSegmentBounds { get; private set; }
+
     public void DrawSegment(SKCanvas canvas, in StrokeSample from, in StrokeSample to,
         BrushSettings brush, SKColor color, PressureChannel channel)
     {
         var mypaint = brush.MyPaint ?? MyPaintBrush.Default;
+
+        LastSegmentBounds = SKRect.Empty;
 
         double length = from.Position.DistanceTo(to.Position);
         double seconds = Interval(from, to);
@@ -196,6 +207,11 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         // Building the dab's alpha into the stops as well would apply it twice, which squares it:
         // a dab asked for at half strength would arrive at a quarter.
         _paint.Shader = hardness >= 1f ? null : Falloff(at, radius, color, hardness);
+
+        var touched = new SKRect((float)(at.X - radius), (float)(at.Y - radius),
+                                 (float)(at.X + radius), (float)(at.Y + radius));
+        LastSegmentBounds = LastSegmentBounds.IsEmpty ? touched
+                                                      : SKRect.Union(LastSegmentBounds, touched);
 
         canvas.DrawCircle((float)at.X, (float)at.Y, (float)radius, _paint);
         _paint.Shader = null;
