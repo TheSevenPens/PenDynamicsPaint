@@ -39,6 +39,47 @@ public static class StockBrushes
         """;
 
     /// <summary>
+    /// A diagnostic: a flat even line whose <b>hue</b> is the direction the pen is leaning.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For looking at how steady tilt is, and for nothing else. Width is the obvious readout and a
+    /// poor one: it is entangled with pressure and with whatever texture the brush has, so on a
+    /// charcoal that already breaks up you cannot tell a wobble in the tilt from the brush doing
+    /// its job. Hue has neither problem -- the eye picks out a band or a flicker in it immediately,
+    /// and nothing else here touches it.
+    /// </para>
+    /// <para>
+    /// Nothing varies but the colour: the radius is fixed, the ink is opaque and the dabs are hard.
+    /// So any change along a stroke is the pen's orientation and cannot be anything else.
+    /// </para>
+    /// <para>
+    /// <c>tilt_ascension</c> rather than declination, because the bearing is the noisy one: near
+    /// vertical it is the pole of a spherical coordinate and swings wildly for no real movement.
+    /// The full turn is mapped onto the full wheel, so rolling the pen around walks the hue around
+    /// once and comes back.
+    /// </para>
+    /// </remarks>
+    public const string TiltTesting = """
+        {
+          "version": 3,
+          "comment": "Written for PenDynamicsPaint. Hue follows tilt_ascension; nothing else moves.",
+          "settings": {
+            "radius_logarithmic":      { "base_value": 2.4 },
+            "opaque":                  { "base_value": 1.0 },
+            "opaque_multiply":         { "base_value": 1.0 },
+            "opaque_linearize":        { "base_value": 0.0 },
+            "hardness":                { "base_value": 1.0 },
+            "dabs_per_actual_radius":  { "base_value": 6.0 },
+            "change_color_h":          { "base_value": 0.0,
+                                         "inputs": { "tilt_ascension": [[-180.0, -0.5], [180.0, 0.5]] } },
+            "change_color_hsv_s":      { "base_value": 5.0 },
+            "change_color_v":          { "base_value": 0.75 }
+          }
+        }
+        """;
+
+    /// <summary>
     /// A soft charcoal that broadens as the pen is laid over, and scatters as it does.
     /// </summary>
     /// <remarks>
