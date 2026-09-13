@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Platform.Storage;
+using PenDynamicsPaint.Drawing.MyPaint;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -274,6 +276,60 @@ public partial class MainWindow : Window
         PaintView.Invalidate();
     }
 
+    /// <summary>
+    /// Load a <c>.myb</c> file over the selected brush.
+    /// </summary>
+    /// <remarks>
+    /// Over the selected brush rather than into a new one, so the smoothing and interpolation
+    /// already set on it are kept: those belong to how the pen is read, and a brush file has
+    /// nothing to say about them.
+    /// </remarks>
+    private async void LoadMyPaintBrush_Click(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open a MyPaint brush",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("MyPaint brush") { Patterns = ["*.myb"] },
+            ],
+        });
+
+        if (files.Count == 0) return;
+
+        var file = files[0];
+        try
+        {
+            await using var stream = await file.OpenReadAsync();
+            using var reader = new StreamReader(stream);
+
+            string name = Path.GetFileNameWithoutExtension(file.Name);
+            var brush = MyPaintBrush.Parse(await reader.ReadToEndAsync(), name);
+
+            EditBrush(b => b with
+            {
+                Name = name,
+                Engine = BrushEngineKind.MyPaint,
+                MyPaint = brush,
+            });
+
+            BrushCombo.ItemsSource = _brushes.Select(b => b.Name).ToList();
+            ShowBrush();
+
+            StatusLabel.Text = brush.Ignored.Count == 0
+                ? $"{name}: loaded"
+                : $"{name}: loaded, {brush.Ignored.Count} setting(s) not acted on";
+        }
+        catch (Exception error) when (error is FormatException or IOException)
+        {
+            // Said out loud rather than swallowed: a brush that will not load is worth knowing
+            // about, and the two reasons -- the old text format, and a file that cannot be read --
+            // are both things the user can do something about.
+            StatusLabel.Text = $"{file.Name}: {error.Message}";
+        }
+    }
+
     // -- Keyboard -------------------------------------------------
 
     /// <summary>
@@ -346,10 +402,10 @@ public partial class MainWindow : Window
             ShowBrush();
         };
 
-        EngineCombo.ItemsSource = new[] { "Taper", "Dabs" };
+        EngineCombo.ItemsSource = new[] { "Taper", "Dabs", "MyPaint" };
         EngineCombo.SelectionChanged += (_, _) => EditBrush(b => b with
         {
-            Engine = EngineCombo.SelectedIndex == 1 ? BrushEngineKind.Dabs : BrushEngineKind.Taper,
+            Engine = (BrushEngineKind)Math.Max(0, EngineCombo.SelectedIndex),
         });
 
         InterpolationCombo.ItemsSource = new[] { "Straight", "Curved" };
@@ -427,12 +483,24 @@ public partial class MainWindow : Window
 
         var b = Brush;
         BrushCombo.SelectedIndex = _brushIndex;
-        EngineCombo.SelectedIndex = b.Engine == BrushEngineKind.Dabs ? 1 : 0;
+        EngineCombo.SelectedIndex = (int)b.Engine;
         InterpolationCombo.SelectedIndex = b.Interpolation == StrokeInterpolation.Curved ? 1 : 0;
         DrivesCombo.SelectedIndex = (int)b.PressureDrives;
 
         SizeSlider.Value = b.Size;
         SizeLabel.Text = $"{b.Size:F0} px";
+
+        bool mypaint = b.Engine == BrushEngineKind.MyPaint;
+
+        // A MyPaint brush brings its own size, opacity, softness, spacing and pressure response,
+        // all of them varying per dab. Leaving the sliders live would offer edits that the next
+        // dab overwrites, so they are disabled and the brush file's name stands in their place.
+        SizeRow.IsEnabled = OpacityRow.IsEnabled = DrivesRow.IsEnabled = !mypaint;
+        CurveSection.IsEnabled = !mypaint;
+        MyPaintRow.IsVisible = mypaint;
+        MyPaintLabel.Text = b.MyPaint is { } file
+            ? file.Ignored.Count == 0 ? file.Name : $"{file.Name} ({file.Ignored.Count} unused)"
+            : "defaults";
 
         SpacingRow.IsVisible = b.Engine == BrushEngineKind.Dabs;
         SpacingSlider.Value = b.Spacing;

@@ -195,6 +195,7 @@ public sealed class PaintSession : IDisposable
         engine = brush.Engine switch
         {
             BrushEngineKind.Dabs => new DabBrushEngine(),
+            BrushEngineKind.MyPaint => new MyPaintBrushEngine(),
             _ => new RoundBrushEngine(),
         };
 

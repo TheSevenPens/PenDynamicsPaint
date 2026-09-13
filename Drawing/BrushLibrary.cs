@@ -1,3 +1,5 @@
+using PenDynamicsPaint.Drawing.MyPaint;
+
 namespace PenDynamicsPaint.Drawing;
 
 /// <summary>
@@ -88,6 +90,26 @@ public static class BrushLibrary
             // Unfiltered, so the opening set has one brush that shows the pen exactly as it
             // reported -- which is the thing this application's neighbour exists to look at.
             Smoothing = StrokeSmoothing.None,
+        },
+
+        // The two MyPaint brushes. Their size, opacity, softness and spacing come from the brush
+        // file rather than from the sliders, which is why the panel greys those out when one is
+        // selected: moving them would say nothing.
+        new BrushSettings
+        {
+            Name = "Speed pen",
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = MyPaintBrush.Parse(StockBrushes.SpeedPen, "Speed pen"),
+            Interpolation = StrokeInterpolation.Curved,
+            Smoothing = new StrokeSmoothing { Position = 40 },
+        },
+
+        new BrushSettings
+        {
+            Name = "Tilt charcoal",
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = MyPaintBrush.Parse(StockBrushes.TiltCharcoal, "Tilt charcoal"),
+            Smoothing = new StrokeSmoothing { Position = 25 },
         },
     ];
 }

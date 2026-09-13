@@ -125,6 +125,17 @@ public sealed record BrushSettings
     /// <summary>How this brush reads the pen.</summary>
     public PressureCurve Curve { get; init; } = PressureCurve.Linear;
 
+    /// <summary>
+    /// The MyPaint brush this uses, when <see cref="Engine"/> is
+    /// <see cref="BrushEngineKind.MyPaint"/>.
+    /// </summary>
+    /// <remarks>
+    /// A whole brush rather than a handful of fields, because that is what a <c>.myb</c> file is:
+    /// sixty-odd settings, each with its own curve for each input. Null means the engine falls back
+    /// to libmypaint's defaults, which is a usable round brush.
+    /// </remarks>
+    public MyPaint.MyPaintBrush? MyPaint { get; init; }
+
     /// <summary>What the ink does between two pen samples.</summary>
     /// <remarks>
     /// On the brush for the same reason smoothing is: it changes what the stroke looks like, and a
