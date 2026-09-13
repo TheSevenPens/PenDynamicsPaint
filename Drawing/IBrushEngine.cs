@@ -76,6 +76,35 @@ public interface IBrushEngine : IDisposable
     /// </remarks>
     SKRect LastSegmentBounds { get; }
 
+    /// <summary>
+    /// The pixels an engine may read while it draws, or null when it may read nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set by the caller for the life of a stroke, like <see cref="Blender"/>, and for the same
+    /// reason: it is a property of what the stroke is being drawn onto rather than of any one
+    /// segment.
+    /// </para>
+    /// <para>
+    /// Only a smudging brush needs it, and needing it changes where the stroke goes. Wash draws
+    /// into a layer of its own and merges once, so an engine reading that layer would see only the
+    /// marks it had just made and none of the painting it is supposed to be dragging around. A
+    /// stroke that reads the canvas therefore paints straight onto the layer, which is what
+    /// libmypaint does for every stroke -- it has no such intermediate.
+    /// </para>
+    /// </remarks>
+    SKBitmap? SampleSource { get; set; }
+
+    /// <summary>
+    /// Whether a stroke with these settings will read the canvas, and so has to paint onto it
+    /// directly.
+    /// </summary>
+    /// <remarks>
+    /// A question about the brush rather than the engine: the same MyPaint engine smudges or does
+    /// not depending on what the file asks for.
+    /// </remarks>
+    bool SamplesTheCanvas(BrushSettings brush) => false;
+
     /// <summary>A stroke is starting. Clear anything carried between segments.</summary>
     /// <remarks>
     /// <para>
@@ -149,6 +178,9 @@ public sealed class RoundBrushEngine : IBrushEngine
     /// <inheritdoc />
     /// <remarks>The taper's own outline, which is exactly the shape that was filled.</remarks>
     public SKRect LastSegmentBounds { get; private set; }
+
+    /// <summary>Never read: a taper's colour is the ink it was given.</summary>
+    public SKBitmap? SampleSource { get; set; }
 
     /// <summary>Nothing to reset: every mark is decided by the two samples it is drawn from.</summary>
     /// <remarks>

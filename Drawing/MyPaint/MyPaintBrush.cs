@@ -73,6 +73,42 @@ public enum MyPaintSetting
     /// <summary>Shifts the ink's value. Added outright, then clamped.</summary>
     ChangeColorV,
 
+    /// <summary>
+    /// How much of the dab's colour is picked up from the canvas rather than being the ink.
+    /// </summary>
+    /// <remarks>
+    /// 0 paints. 1 lays down only what was already there, which is what drags one colour into
+    /// another. In between is a brush that paints while carrying some of what it crossed.
+    /// </remarks>
+    Smudge,
+
+    /// <summary>
+    /// How long the picked-up colour is carried, 0 to 1. Low forgets quickly, high smears far.
+    /// </summary>
+    SmudgeLength,
+
+    /// <summary>How wide an area is picked up, as a log multiple of the dab's own radius.</summary>
+    SmudgeRadiusLog,
+
+    /// <summary>
+    /// Lets the canvas be resampled less often than every dab, as a saving.
+    /// </summary>
+    /// <remarks>
+    /// Reading the canvas costs about as much as drawing a dab, so libmypaint allows a brush to
+    /// say it can tolerate a stale sample. At the default of 0 it resamples every dab, which is
+    /// what the arithmetic works out to and not a special case.
+    /// </remarks>
+    SmudgeLengthLog,
+
+    /// <summary>
+    /// How much alpha has to be under the dab before it will pick anything up at all.
+    /// </summary>
+    /// <remarks>
+    /// Positive refuses to smudge where the canvas is barely there; negative reverses the test.
+    /// A dab that fails it is not drawn.
+    /// </remarks>
+    SmudgeTransparency,
+
     /// <summary>Dabs per radius of travel, measured against the brush's base radius.</summary>
     DabsPerBasicRadius,
 
@@ -179,6 +215,11 @@ public sealed class MyPaintBrush
             [MyPaintSetting.ChangeColorH] = 0.0f,
             [MyPaintSetting.ChangeColorHsvS] = 0.0f,
             [MyPaintSetting.ChangeColorV] = 0.0f,
+            [MyPaintSetting.Smudge] = 0.0f,
+            [MyPaintSetting.SmudgeLength] = 0.5f,
+            [MyPaintSetting.SmudgeRadiusLog] = 0.0f,
+            [MyPaintSetting.SmudgeLengthLog] = 0.0f,
+            [MyPaintSetting.SmudgeTransparency] = 0.0f,
             [MyPaintSetting.DabsPerBasicRadius] = 0.0f,
             [MyPaintSetting.DabsPerActualRadius] = 2.0f,
             [MyPaintSetting.OffsetByRandom] = 0.0f,
@@ -287,6 +328,11 @@ public sealed class MyPaintBrush
             ["change_color_h"] = MyPaintSetting.ChangeColorH,
             ["change_color_hsv_s"] = MyPaintSetting.ChangeColorHsvS,
             ["change_color_v"] = MyPaintSetting.ChangeColorV,
+            ["smudge"] = MyPaintSetting.Smudge,
+            ["smudge_length"] = MyPaintSetting.SmudgeLength,
+            ["smudge_radius_log"] = MyPaintSetting.SmudgeRadiusLog,
+            ["smudge_length_log"] = MyPaintSetting.SmudgeLengthLog,
+            ["smudge_transparency"] = MyPaintSetting.SmudgeTransparency,
             ["dabs_per_basic_radius"] = MyPaintSetting.DabsPerBasicRadius,
             ["dabs_per_actual_radius"] = MyPaintSetting.DabsPerActualRadius,
             ["offset_by_random"] = MyPaintSetting.OffsetByRandom,
@@ -332,8 +378,8 @@ public sealed class MyPaintBrush
     /// Settings and inputs the file asked for that this application does not act on.
     /// </summary>
     /// <remarks>
-    /// Kept so the shortfall can be shown rather than guessed at. A brush that relies on smudge
-    /// will not look right here, and this is what says so.
+    /// Kept so the shortfall can be shown rather than guessed at. A brush that relies on the
+    /// eraser or on spectral colour mixing will not look right here, and this is what says so.
     /// </remarks>
     public IReadOnlyList<string> Ignored { get; }
 

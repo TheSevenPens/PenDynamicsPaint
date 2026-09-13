@@ -179,7 +179,7 @@ which is a curve in the radius and so is sampled into a gradient rather than han
 stops.
 
 **What reaches the mark:** radius, opacity, hardness, spacing, the pile-up correction, elliptical
-dabs, the HSV colour shifts, and the two random offsets. **What does not:** smudge, the HSL colour
+dabs, the HSV colour shifts, smudge, and the two random offsets. **What does not:** the HSL colour
 pair, tracking, and the eraser.
 
 The colour shifts are worked out per dab and driven by inputs like any other setting, so a brush can
@@ -251,6 +251,56 @@ and repaints only the layer that stroke belonged to. It steps through **strokes,
 adding, deleting, reordering or merging a layer is not undoable, and a merge down is destructive,
 since the merged pixels cannot be reproduced by replaying the two histories in the order they were
 drawn.
+
+### Smudging
+
+The one thing in the engine that **reads** the canvas rather than only writing to it. A smudging
+dab takes its colour from what is already there: at `smudge` 1 it lays no ink of its own at all and
+only moves paint around.
+
+Two colours are kept, not one. What is read off the canvas is blended into a running colour, and it
+is that running colour the dab is painted with -- which is what makes a smudge a smear with a length
+rather than a copy of the pixel underneath. `smudge_length` sets how long the brush holds on to what
+it picked up.
+
+**A stroke that reads the canvas paints straight onto the layer**, skipping the stroke layer Wash
+otherwise gives it. In that layer the only thing to find would be the marks it had just made, so it
+would drag its own colour along and never touch the painting. libmypaint has no such intermediate
+for the same reason.
+
+**It reads the layer as it stood when the stroke began**, not as the stroke is changing it. A brush
+reading the live layer picks up the paint the dab before it just laid and tops itself back up, so
+the colour never runs out and a smudge carries on to the edge of the canvas at the same strength.
+Reading what was already there makes the paint on the brush finite, and the trail then fades because
+it is running out.
+
+**The reading is taken from the half-disc behind the dab**, not from a disc around it. A whole disc
+reaches as far in front of the brush as behind, so a dab still short of a mark already overlaps it,
+picks its colour up and lays it down there -- paint moving backwards, against the stroke. This is a
+deliberate departure from libmypaint, which has that bleed; Krita's smudge does not, and paint
+dragged the way the brush is moving is what someone using one expects.
+
+Half a disc rather than a whole one shifted back, which is worse: shifted by its own radius the
+reading sits entirely on ground the dab has left, so crossing a mark it reads the blank canvas
+behind and wipes the mark out instead of spreading it.
+
+Between them these two make `smudge_length` the only thing deciding how far paint travels, so it
+runs high -- below about 0.7 nothing goes more than a dab or two.
+
+**A smudge moves paint rather than adding it**, and that needs its own compositing. Painting a dab
+over the canvas can only ever put more paint down, so a smudge built on source-over copies its
+colour onward for as long as the stroke lasts and the mark it came from never loses anything. The
+canvas is pulled *towards* the dab instead: where the brush is carrying less paint than the canvas
+holds, the canvas ends up with less. That is what makes a mark spread thinner instead of being
+duplicated, and what makes a trail fade as the paint runs out. Skia has no such blend mode, so it is
+a runtime blender like `AlphaDarken`, ported from `draw_dab_pixels_BlendMode_Normal_and_Eraser`.
+
+The dab's colour is divided by that target alpha and the blend multiplies it back. Doing only the
+division leaves every dab too bright; doing neither leaves it too dark.
+
+Ported from the **legacy** path of `update_smudge_color` and `apply_smudge`. The other path mixes
+through libmypaint's spectral pigment model, which is a much larger piece of work and a different
+question from whether paint moves at all.
 
 ### Filtering tilt
 

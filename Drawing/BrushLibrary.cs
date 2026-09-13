@@ -116,6 +116,16 @@ public static class BrushLibrary
             Smoothing = new StrokeSmoothing { Position = 25, Tilt = 60 },
         },
 
+        // Moves paint rather than laying any, so it is the one brush here that does nothing at
+        // all on an empty canvas.
+        new BrushSettings
+        {
+            Name = "Smudge",
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = MyPaintBrush.Parse(StockBrushes.Smudge, "Smudge"),
+            Smoothing = new StrokeSmoothing { Position = 30 },
+        },
+
         // A diagnostic rather than a brush to draw with. It is in the opening set because the
         // thing it measures -- how steady the tilt reaching a brush is -- is otherwise only
         // visible through a brush whose texture hides it.

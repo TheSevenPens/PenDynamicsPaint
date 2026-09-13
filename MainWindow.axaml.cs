@@ -5,9 +5,11 @@ using PenDynamicsPaint.Drawing.MyPaint;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
+using SkiaSharp;
 using WinPenKit;
 using WinPenKit.Avalonia;
 
@@ -166,6 +168,97 @@ public partial class MainWindow : Window
 
     /// <inheritdoc cref="ToStackIndex" />
     private int ToRow(int stackIndex) => _paint.Layers.Count - 1 - stackIndex;
+
+    // -- Ink -----------------------------------------------------
+
+    /// <summary>The colours a stroke can be drawn in.</summary>
+    /// <remarks>
+    /// <para>
+    /// A fixed set rather than a picker, because the point is to have more than one colour at all.
+    /// Until this there was exactly one: <c>PaintSession</c> held a dark navy and nothing ever
+    /// called <c>SetStrokeColor</c>, so every mark in the application was the same colour.
+    /// </para>
+    /// <para>
+    /// That made the smudge brush impossible to judge. It worked -- it picked colour up off the
+    /// canvas and carried it -- but the only colour there to pick up was the one it would have
+    /// painted anyway, so it drew what looked like an ordinary stroke. A feature can be correct and
+    /// still be untestable by the person using it.
+    /// </para>
+    /// <para>
+    /// A picker with the full space is the obvious next thing and is not this: choosing a colour
+    /// properly wants a wheel, a value slider and somewhere to keep the recent ones.
+    /// </para>
+    /// </remarks>
+    private static readonly (string Name, SKColor Colour)[] Inks =
+    [
+        ("Ink",     new SKColor(0x1A, 0x1A, 0x2E)),
+        ("Red",     new SKColor(0xD9, 0x32, 0x2F)),
+        ("Orange",  new SKColor(0xE8, 0x7A, 0x1E)),
+        ("Yellow",  new SKColor(0xF0, 0xC0, 0x20)),
+        ("Green",   new SKColor(0x2E, 0xA0, 0x4E)),
+        ("Blue",    new SKColor(0x22, 0x77, 0xCC)),
+        ("Violet",  new SKColor(0x7B, 0x3F, 0xB8)),
+        ("Brown",   new SKColor(0x8A, 0x5A, 0x2B)),
+        ("White",   new SKColor(0xFF, 0xFF, 0xFF)),
+    ];
+
+    private readonly List<Border> _swatches = [];
+    private int _inkIndex;
+
+    /// <summary>Build the swatch row, and put the first colour in front of the pen.</summary>
+    private void BuildSwatches()
+    {
+        for (int i = 0; i < Inks.Length; i++)
+        {
+            int index = i;
+
+            var swatch = new Border
+            {
+                Width = 20,
+                Height = 20,
+                CornerRadius = new CornerRadius(3),
+                Background = new SolidColorBrush(
+                    Color.FromArgb(255, Inks[i].Colour.Red, Inks[i].Colour.Green, Inks[i].Colour.Blue)),
+                BorderThickness = new Thickness(2),
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = new Cursor(StandardCursorType.Hand),
+            };
+
+            ToolTip.SetTip(swatch, Inks[i].Name);
+
+            swatch.PointerPressed += (_, e) =>
+            {
+                e.Handled = true;
+                ChooseInk(index);
+            };
+
+            _swatches.Add(swatch);
+            SwatchRow.Children.Add(swatch);
+        }
+
+        ChooseInk(0);
+    }
+
+    private void ChooseInk(int index)
+    {
+        _inkIndex = index;
+        _paint.SetStrokeColor(Inks[index].Colour);
+
+        // Outlined rather than grown or moved: a swatch that changes size shifts the ones beside
+        // it, and picking a colour twice in a row should not move the target under the pen.
+        //
+        // Every swatch keeps an outline, not just the chosen one. Without it the white swatch is a
+        // white square on a pale bar and cannot be seen at all, which is a strange way to offer
+        // somebody a colour.
+        for (int i = 0; i < _swatches.Count; i++)
+        {
+            _swatches[i].BorderBrush = i == index
+                ? new SolidColorBrush(Colors.Black)
+                : new SolidColorBrush(Color.FromArgb(0x40, 0x00, 0x00, 0x00));
+        }
+
+        StatusLabel.Text = $"Ink: {Inks[index].Name}";
+    }
 
     private void RebuildLayerList()
     {
@@ -404,6 +497,10 @@ public partial class MainWindow : Window
         _paint = session;
         _paint.Compositing = old.Compositing;
 
+        // The ink belongs to the application rather than to the file, so it is re-applied to the
+        // session that replaced the old one -- which would otherwise start on its own default.
+        _paint.SetStrokeColor(Inks[_inkIndex].Colour);
+
         PaintView.Session = _paint;
         _documentFile = from;
 
@@ -618,6 +715,7 @@ public partial class MainWindow : Window
         }));
 
         ShowBrush();
+        BuildSwatches();
     }
 
     private static void OnSlider(Slider slider, Action changed)

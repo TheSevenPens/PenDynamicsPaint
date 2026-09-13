@@ -39,6 +39,43 @@ public static class StockBrushes
         """;
 
     /// <summary>
+    /// A finger for pushing wet paint around: it lays almost no ink of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>smudge</c> at 1 means the dab is made entirely of what was already on the canvas, so
+    /// this moves paint rather than adding any. Pressure drives the length -- press lightly and the
+    /// paint is put back down almost at once, press hard and it is dragged a long way.
+    ///
+    /// The length runs high and over a narrow range, and that is not a fussy choice: since a brush
+    /// reads the canvas as it stood when the stroke began rather than its own trail, the paint on
+    /// it is finite and the length is the only thing deciding how far it goes. Below about 0.7
+    /// nothing travels more than a dab or two.
+    /// </para>
+    /// <para>
+    /// It does nothing on a blank canvas, and that is not a fault: there is nothing to pick up, so
+    /// every dab comes out fully transparent and none is drawn. Paint something first.
+    /// </para>
+    /// </remarks>
+    public const string Smudge = """
+        {
+          "version": 3,
+          "comment": "Written for PenDynamicsPaint. Moves paint instead of laying any.",
+          "settings": {
+            "radius_logarithmic":      { "base_value": 2.7 },
+            "opaque":                  { "base_value": 1.0 },
+            "opaque_multiply":         { "base_value": 1.0 },
+            "hardness":                { "base_value": 0.7 },
+            "dabs_per_actual_radius":  { "base_value": 6.0 },
+            "smudge":                  { "base_value": 1.0 },
+            "smudge_length":           { "base_value": 0.80,
+                                         "inputs": { "pressure": [[0.0, 0.0], [1.0, 0.17]] } },
+            "smudge_radius_log":       { "base_value": 0.2 }
+          }
+        }
+        """;
+
+    /// <summary>
     /// A diagnostic: a flat even line whose <b>hue</b> is the direction the pen is leaning.
     /// </summary>
     /// <remarks>
