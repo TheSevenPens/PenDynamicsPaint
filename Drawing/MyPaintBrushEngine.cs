@@ -177,7 +177,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
             var inputs = _inputs.Next(here, _previous, sample, elapsed, mypaint, baseRadius);
             _previous = here;
 
-            Stamp(canvas, here, inputs, mypaint, color);
+            Stamp(canvas, here, ux, uy, inputs, mypaint, color);
         }
 
         _carried += seconds * (1 - reached);
@@ -261,8 +261,10 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     private static double Radius(MyPaintBrush brush, in BrushInputs inputs) =>
         Math.Exp(brush[MyPaintSetting.RadiusLogarithmic].ValueFor(inputs));
 
-    private void Stamp(SKCanvas canvas, DocumentPoint at, in BrushInputs inputs,
-                       MyPaintBrush brush, SKColor color)
+    /// <param name="ux">Unit direction of travel, x. A smudge picks up behind itself.</param>
+    /// <param name="uy">Unit direction of travel, y.</param>
+    private void Stamp(SKCanvas canvas, DocumentPoint at, double ux, double uy,
+                       in BrushInputs inputs, MyPaintBrush brush, SKColor color)
     {
         double radius = Radius(brush, inputs);
 
@@ -281,7 +283,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         float alpha = Alpha(brush, inputs);
         if (alpha <= 0) return;
 
-        double? smudgeTarget = Smudged(ref color, at, radius, brush, inputs);
+        double? smudgeTarget = Smudged(ref color, at, ux, uy, radius, brush, inputs);
         if (smudgeTarget is double target && target <= 0) return;
 
         color = Tinted(color, brush, inputs);
@@ -357,8 +359,8 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// colour onwards forever instead of running out, which is what this did at first.
     /// </para>
     /// </remarks>
-    private double? Smudged(ref SKColor color, DocumentPoint at, double radius,
-                            MyPaintBrush brush, in BrushInputs inputs)
+    private double? Smudged(ref SKColor color, DocumentPoint at, double ux, double uy,
+                            double radius, MyPaintBrush brush, in BrushInputs inputs)
     {
         var setting = brush[MyPaintSetting.Smudge];
         if (setting.BaseValue == 0 && setting.IsConstant) return null;
@@ -370,7 +372,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         // for a reading to blend into and libmypaint does not take one.
         if (length < 1.0 && SampleSource is { } canvas)
         {
-            if (!PickUp(canvas, at, radius, length, brush, inputs)) return 0;
+            if (!PickUp(canvas, at, ux, uy, radius, length, brush, inputs)) return 0;
         }
 
         if (smudge <= 0) return null;
@@ -402,8 +404,8 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// stale reading. At the default of 0 the arithmetic comes out to resampling every dab, which
     /// is the ordinary case rather than an exception to it.
     /// </remarks>
-    private bool PickUp(SKBitmap canvas, DocumentPoint at, double radius, double length,
-                        MyPaintBrush brush, in BrushInputs inputs)
+    private bool PickUp(SKBitmap canvas, DocumentPoint at, double ux, double uy, double radius,
+                        double length, MyPaintBrush brush, in BrushInputs inputs)
     {
         double update = Math.Max(0.01, length);
         double lengthLog = brush[MyPaintSetting.SmudgeLengthLog].ValueFor(inputs);
@@ -422,7 +424,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
                 radius * Math.Exp(brush[MyPaintSetting.SmudgeRadiusLog].ValueFor(inputs)),
                 MinRadius, MaxRadius);
 
-            var (r, g, b, a) = Average(canvas, at, sampleRadius);
+            var (r, g, b, a) = Average(canvas, at, sampleRadius, ux, uy);
 
             double limit = brush[MyPaintSetting.SmudgeTransparency].ValueFor(inputs);
             if ((limit > 0 && a < limit) || (limit < 0 && a > -limit)) return false;
@@ -444,8 +446,29 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         return true;
     }
 
-    /// <summary>The mean colour of the canvas over a disc, as straight values in 0 to 1.</summary>
+    /// <summary>
+    /// The mean colour of the canvas over the half-disc <b>behind</b> the dab, as straight values
+    /// in 0 to 1.
+    /// </summary>
     /// <remarks>
+    /// <para>
+    /// Behind, not around. A whole disc reaches as far in front of the brush as behind it, so a dab
+    /// still short of a mark already overlaps it, picks its colour up and lays it down there --
+    /// paint moving backwards, against the direction of the stroke. Reported from drawing a smudge
+    /// down through a horizontal line and watching red climb upwards out of it.
+    /// </para>
+    /// <para>
+    /// <b>A deliberate departure from libmypaint</b>, which reads a disc centred on the dab and has
+    /// that backward bleed. Krita's smudge does not, and paint dragged the way the brush is moving
+    /// is what someone using one expects.
+    /// </para>
+    /// <para>
+    /// Half a disc rather than a whole one shifted back, which was tried first and is worse: shifted
+    /// by its own radius the reading sits entirely on ground the dab has left, so while the brush is
+    /// crossing a mark it reads the blank canvas behind and wipes the mark out instead of spreading
+    /// it. Halving keeps the leading edge at the dab's centre and keeps every pixel the brush has
+    /// actually covered.
+    /// </para>
     /// <para>
     /// Averaged over a grid rather than every pixel. A smudge radius can be hundreds of units
     /// across and this runs per dab, so the number of readings is capped and the step widened to
@@ -459,8 +482,11 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// </para>
     /// </remarks>
     private static (double R, double G, double B, double A) Average(
-        SKBitmap canvas, DocumentPoint at, double radius)
+        SKBitmap canvas, DocumentPoint at, double radius, double ux, double uy)
     {
+        // A stationary brush has no behind, so it reads all round itself.
+        bool directional = ux != 0 || uy != 0;
+
         int step = Math.Max(1, (int)Math.Ceiling(radius * 2 / SampleGrid));
 
         double r = 0, g = 0, b = 0, a = 0, weight = 0;
@@ -479,6 +505,8 @@ public sealed class MyPaintBrushEngine : IBrushEngine
 
                 double dx = x - at.X, dy = y - at.Y;
                 if (dx * dx + dy * dy > radius * radius) continue;
+
+                if (directional && dx * ux + dy * uy > 0) continue;
 
                 var pixel = canvas.GetPixel(x, y);
                 double alpha = pixel.Alpha / 255.0;

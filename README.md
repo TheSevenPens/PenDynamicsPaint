@@ -268,11 +268,24 @@ otherwise gives it. In that layer the only thing to find would be the marks it h
 would drag its own colour along and never touch the painting. libmypaint has no such intermediate
 for the same reason.
 
-That has a consequence worth knowing, because it makes the `smudge` setting behave in a way that
-looks broken: **a smudge reads its own trail.** Below 1, every dab dilutes the carried colour with
-ink and then reads that diluted trail back, so the dilution compounds and the colour is gone within
-a few dab widths; at exactly 1 there is no ink in the mix and it sustains itself indefinitely. The
-setting is therefore nothing like linear. That is libmypaint's arithmetic rather than a choice here.
+**It reads the layer as it stood when the stroke began**, not as the stroke is changing it. A brush
+reading the live layer picks up the paint the dab before it just laid and tops itself back up, so
+the colour never runs out and a smudge carries on to the edge of the canvas at the same strength.
+Reading what was already there makes the paint on the brush finite, and the trail then fades because
+it is running out.
+
+**The reading is taken from the half-disc behind the dab**, not from a disc around it. A whole disc
+reaches as far in front of the brush as behind, so a dab still short of a mark already overlaps it,
+picks its colour up and lays it down there -- paint moving backwards, against the stroke. This is a
+deliberate departure from libmypaint, which has that bleed; Krita's smudge does not, and paint
+dragged the way the brush is moving is what someone using one expects.
+
+Half a disc rather than a whole one shifted back, which is worse: shifted by its own radius the
+reading sits entirely on ground the dab has left, so crossing a mark it reads the blank canvas
+behind and wipes the mark out instead of spreading it.
+
+Between them these two make `smudge_length` the only thing deciding how far paint travels, so it
+runs high -- below about 0.7 nothing goes more than a dab or two.
 
 **A smudge moves paint rather than adding it**, and that needs its own compositing. Painting a dab
 over the canvas can only ever put more paint down, so a smudge built on source-over copies its

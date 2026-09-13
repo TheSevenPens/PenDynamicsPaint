@@ -153,7 +153,10 @@ public class SmudgeTests
         using var before = session.Bitmap.Copy();
         int wasRed = before.GetPixel(BarX, 160).Red - before.GetPixel(BarX, 160).Blue;
 
-        DragAcross(session, Smudging(smudge: 1.0, length: 0.8));
+        // A long length, because the paint on the brush is finite: it reads the canvas as it stood
+        // when the stroke began rather than its own trail, so the length is the only thing that
+        // decides how much is lifted and how far it goes.
+        DragAcross(session, Smudging(smudge: 1.0, length: 0.95));
 
         int nowRed = Redness(session, BarX, 160);
 
@@ -174,7 +177,7 @@ public class SmudgeTests
         using var session = new PaintSession(900, 320);
 
         PaintTheBar(session, Red);
-        DragAcross(session, Smudging(smudge: 1.0, length: 0.8));
+        DragAcross(session, Smudging(smudge: 1.0, length: 0.95));
 
         int near = Redness(session, 175, 160);
         int middle = Redness(session, 230, 160);
@@ -267,30 +270,94 @@ public class SmudgeTests
     }
 
     [Fact]
-    public void A_wider_pickup_reaches_paint_from_further_off()
+    public void A_wider_pickup_keeps_hold_of_a_mark_for_longer()
     {
-        // smudge_radius_log widens the disc the colour is read from, as a log multiple of the dab's
-        // own radius. The effect that shows it is where a smudge first finds anything: a wide
-        // pickup catches the edge of the bar while the dab is still clear of it, and so starts
-        // laying colour earlier than a narrow one.
-        int FirstInk(double radiusLog)
+        // smudge_radius_log widens the area the colour is read from, as a log multiple of the dab's
+        // own radius. Since the reading is taken behind the dab, a wider one goes on overlapping a
+        // mark after the dab itself has left it, so it lifts more paint and carries it further.
+        //
+        // An earlier version of this measured where the smudge first laid anything, on the grounds
+        // that a wide reading finds a mark sooner. It did, while the reading was a disc centred on
+        // the dab and reached ahead of the brush -- which is the fault that reading behind it fixed,
+        // so the test was pinning the thing that had to change.
+        int Carried(double radiusLog)
         {
             using var session = new PaintSession(900, 320);
 
             PaintTheBar(session, Red);
             DragAcross(session, Smudging(smudge: 1.0, length: 0.8, radiusLog: radiusLog));
 
-            for (int x = 0; x < 900; x++)
-                if (session.Bitmap.GetPixel(x, 160) != SKColors.White) return x;
-
-            return 900;
+            int ink = 0;
+            for (int x = 170; x < 560; x++) ink += 255 - session.Bitmap.GetPixel(x, 160).Green;
+            return ink;
         }
 
-        int narrow = FirstInk(0.0);
-        int wide = FirstInk(1.0);
+        int narrow = Carried(0.0);
+        int wide = Carried(1.0);
 
-        Assert.True(wide < narrow - 10,
-            $"a wider pickup should start carrying sooner: it began at x={wide} against {narrow}");
+        Assert.True(wide > narrow * 2,
+            $"a wider reading should carry more paint away: {wide} against {narrow}");
+    }
+
+    [Fact]
+    public void Paint_is_dragged_the_way_the_brush_is_moving_and_not_backwards()
+    {
+        // Reported from drawing a smudge down through a horizontal line and watching red climb
+        // upwards out of it, against the direction of the stroke, where Krita's smudge drags it
+        // down only.
+        //
+        // The reading was a disc centred on the dab, so it reached as far in front of the brush as
+        // behind: a dab still short of the line already overlapped it, picked its colour up and
+        // laid it down there. It reads the half behind the dab now, so nothing is lifted off ground
+        // the brush has not yet covered.
+        using var session = new PaintSession(900, 620);
+
+        // A horizontal line, crossed by a smudge drawn downwards through it.
+        session.SetStrokeColor(Red);
+        for (int i = 0; i < 120; i++)
+            session.AddSample(60 + i * 6.5, 300, 0.9, Using(Plain()), default, (long)(i * 10_000));
+        session.EndStroke();
+
+        session.SetStrokeColor(SKColors.White);
+        for (int i = 0; i < 90; i++)
+            session.AddSample(430, 180 + i * 4.0, 0.9, Using(Smudging(smudge: 1.0, length: 0.95)),
+                              default, (long)(i * 10_000));
+        session.EndStroke();
+
+        // Ink either side of the line, clear of its own width.
+        int above = 0, below = 0;
+        for (int y = 180; y < 280; y++) above += 255 - session.Bitmap.GetPixel(430, y).Green;
+        for (int y = 325; y < 460; y++) below += 255 - session.Bitmap.GetPixel(430, y).Green;
+
+        Assert.True(below > 200, $"the smudge dragged nothing downwards: {below}");
+        Assert.True(above < below / 8,
+            $"the smudge pulled paint back up against its own travel: {above} above the line " +
+            $"against {below} below it");
+    }
+
+    [Fact]
+    public void A_brush_does_not_pick_up_its_own_trail()
+    {
+        // What makes the paint on a brush finite. Reading the layer as it is being changed, every
+        // dab past a mark reads the paint the dab before it just laid and tops itself back up, so
+        // the colour never runs out: the trail comes out the same strength at any distance and
+        // carries on to the edge of the canvas.
+        //
+        // Reading the canvas as it stood when the stroke began means there is nothing to top up
+        // from. The giveaway either way is whether the trail is still the same strength a long way
+        // out, so this measures the shape of it rather than any one point.
+        using var session = new PaintSession(900, 320);
+
+        PaintTheBar(session, Red);
+        DragAcross(session, Smudging(smudge: 1.0, length: 0.95));
+
+        int near = RedAlong(session, 170, 240);
+        int far = RedAlong(session, 400, 470);
+
+        Assert.True(near > 200, $"the smudge carried almost nothing: {near}");
+        Assert.True(far < near / 10,
+            $"the trail is as strong {far} a long way out as it is {near} near the mark, so the " +
+            "brush is reading what it has just laid down");
     }
 
     [Fact]
@@ -345,17 +412,39 @@ public class SmudgeTests
     [Fact]
     public void A_smudge_refuses_bare_canvas_when_it_is_told_to()
     {
-        // smudge_transparency is a floor on how much alpha has to be under the dab before it will
-        // pick anything up. Above the floor the dab is not drawn at all, which is what keeps a
-        // smudge brush from spreading a mark outwards past its own edge.
-        using var session = new PaintSession(900, 320);
+        // smudge_transparency is a floor on how much paint has to be under the reading before the
+        // brush will pick anything up, and a dab that fails it is not drawn at all. It is what
+        // keeps a smudge brush from spreading a mark outwards past its own edge.
+        //
+        // Measured against the same brush with the floor open, rather than against bare paper. The
+        // floor does not stop a smudge travelling by a little -- dabs laid while the brush is still
+        // over the mark clear its edge by their own radius, floor or no floor -- so a test that
+        // looked for an empty canvas either passed for the wrong reason or failed for one.
+        (int Last, int Total) Reach(double transparency)
+        {
+            using var session = new PaintSession(900, 320);
 
-        PaintTheBar(session, Red);
-        DragAcross(session, Smudging(smudge: 1.0, length: 0.8, transparency: 0.9));
+            PaintTheBar(session, Red);
+            DragAcross(session, Smudging(smudge: 1.0, length: 0.95, transparency: transparency));
 
-        // Beyond the bar there is nothing solid enough to pick up, so nothing should be laid.
-        for (int x = 260; x < 600; x++)
-            Assert.Equal(SKColors.White, session.Bitmap.GetPixel(x, 160));
+            int last = -1, total = 0;
+            for (int x = 157; x < 600; x++)
+            {
+                if (session.Bitmap.GetPixel(x, 160) != SKColors.White) last = x;
+                total += 255 - session.Bitmap.GetPixel(x, 160).Green;
+            }
+
+            return (last, total);
+        }
+
+        var open = Reach(0.0);
+        var floored = Reach(0.9);
+
+        Assert.True(open.Last > 300, $"the unfloored smudge should travel: it stopped at {open.Last}");
+        Assert.True(floored.Last < 200,
+            $"the floored smudge travelled to {floored.Last}, so the floor refused nothing");
+        Assert.True(floored.Total < open.Total / 3,
+            $"the floor let {floored.Total} through against {open.Total} without it");
     }
 
     [Fact]

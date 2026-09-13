@@ -388,9 +388,19 @@ public sealed class PaintSession : IDisposable
             History.BeginStroke(brush, _strokeColor, ActiveLayer.Id);
             BeginLayerIfWashing(_strokeEngine, brush);
 
-            // What a smudging stroke reads. Always the layer, and never a stroke layer, because a
-            // stroke that samples is the one case BeginLayerIfWashing refuses to give one to.
-            _strokeEngine.SampleSource = ActiveLayer.Bitmap;
+            // What a smudging stroke reads: the layer as it stood when the stroke began, rather
+            // than the layer as it is being changed.
+            //
+            // <b>A brush must not pick up its own trail.</b> Reading the live layer, every dab past
+            // a mark reads the paint the dab before it just laid and tops itself back up, so the
+            // colour never runs out and a smudge carries on to the edge of the canvas. Reading what
+            // was there instead means the paint on the brush is finite: once the reading has moved
+            // off the mark there is nothing more to pick up, and the trail fades because it is
+            // running out rather than because of some balance between reading blank ground and
+            // painted ground.
+            _sampleSnapshot?.Dispose();
+            _sampleSnapshot = _strokeEngine.SamplesTheCanvas(brush) ? ActiveLayer.Bitmap.Copy() : null;
+            _strokeEngine.SampleSource = _sampleSnapshot;
 
             _strokeEngine.BeginStroke();
         }
@@ -532,6 +542,13 @@ public sealed class PaintSession : IDisposable
     /// the merge is the picture that was already on screen.
     /// </para>
     /// </remarks>
+    /// <summary>The canvas as it was when the current stroke began, for a brush that reads it.</summary>
+    /// <remarks>
+    /// Only allocated for a stroke that samples, and thrown away when the next one starts. A copy
+    /// of the layer is not cheap, and every other brush would be paying for it.
+    /// </remarks>
+    private SKBitmap? _sampleSnapshot;
+
     private void MergeStrokeLayer(IBrushEngine? engine)
     {
         if (!_layerActive || _strokeLayer is null) return;
@@ -749,10 +766,15 @@ public sealed class PaintSession : IDisposable
 
         var target = _layerActive ? _strokeLayer!.Canvas : destination;
 
-        // What a smudging stroke reads while it redraws. The layer has been reset to its baseline
-        // and the earlier strokes replayed onto it, so a replayed smudge finds the same paint it
-        // found the first time and lands in the same place.
-        engine.SampleSource = reading;
+        // What a smudging stroke reads while it redraws: a copy of the layer as it stood before
+        // this stroke, exactly as when it was first drawn. The layer has been reset to its baseline
+        // and the earlier strokes replayed onto it, so the copy holds the same paint the stroke
+        // found the first time and it lands in the same place.
+        using var snapshot = reading is null || !engine.SamplesTheCanvas(stroke.Brush)
+            ? null
+            : reading.Copy();
+
+        engine.SampleSource = snapshot;
 
         // Filtered and fitted again from the raw samples, through this stroke's own brush. Both
         // stages are deterministic, so the ink lands exactly where it did the first time; running
