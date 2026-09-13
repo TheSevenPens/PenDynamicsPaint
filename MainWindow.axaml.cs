@@ -292,6 +292,14 @@ public partial class MainWindow : Window
             Engine = EngineCombo.SelectedIndex == 1 ? BrushEngineKind.Dabs : BrushEngineKind.Taper,
         });
 
+        InterpolationCombo.ItemsSource = new[] { "Straight", "Curved" };
+        InterpolationCombo.SelectionChanged += (_, _) => EditBrush(b => b with
+        {
+            Interpolation = InterpolationCombo.SelectedIndex == 1
+                ? StrokeInterpolation.Curved
+                : StrokeInterpolation.Straight,
+        });
+
         DrivesCombo.ItemsSource = new[] { "Size", "Opacity", "Both" };
         DrivesCombo.SelectionChanged += (_, _) => EditBrush(b => b with
         {
@@ -360,6 +368,7 @@ public partial class MainWindow : Window
         var b = Brush;
         BrushCombo.SelectedIndex = _brushIndex;
         EngineCombo.SelectedIndex = b.Engine == BrushEngineKind.Dabs ? 1 : 0;
+        InterpolationCombo.SelectedIndex = b.Interpolation == StrokeInterpolation.Curved ? 1 : 0;
         DrivesCombo.SelectedIndex = (int)b.PressureDrives;
 
         SizeSlider.Value = b.Size;

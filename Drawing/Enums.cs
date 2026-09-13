@@ -91,6 +91,28 @@ public enum PressureControl
     Both,
 }
 
+/// <summary>What the ink does between two pen samples.</summary>
+/// <remarks>
+/// A second kind of smoothing, and a more visible one than filtering the samples themselves:
+/// <see cref="PathSmoother"/> decides where the samples are, this decides the path between them.
+/// A tablet reporting every few document units draws a polygon under
+/// <see cref="Straight"/>, and the corners show on any curve drawn quickly.
+/// </remarks>
+public enum StrokeInterpolation
+{
+    /// <summary>A chord from one sample to the next. What the pen reported, and nothing more.</summary>
+    Straight,
+
+    /// <summary>
+    /// A cubic through the samples, with tangents taken from their neighbours.
+    /// </summary>
+    /// <remarks>
+    /// Costs a one-sample lag, because the tangent at a sample needs the one after it. See
+    /// <see cref="CurveFitter"/>.
+    /// </remarks>
+    Curved,
+}
+
 /// <summary>Which engine lays down a brush's marks.</summary>
 /// <remarks>
 /// A choice on the brush rather than on the application, and named rather than held as an engine

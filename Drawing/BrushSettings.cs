@@ -125,6 +125,13 @@ public sealed record BrushSettings
     /// <summary>How this brush reads the pen.</summary>
     public PressureCurve Curve { get; init; } = PressureCurve.Linear;
 
+    /// <summary>What the ink does between two pen samples.</summary>
+    /// <remarks>
+    /// On the brush for the same reason smoothing is: it changes what the stroke looks like, and a
+    /// brush that draws a crisp polygon and one that draws a fitted arc are different brushes.
+    /// </remarks>
+    public StrokeInterpolation Interpolation { get; init; } = StrokeInterpolation.Straight;
+
     /// <summary>
     /// How much this brush steadies the pen before drawing with it.
     /// </summary>

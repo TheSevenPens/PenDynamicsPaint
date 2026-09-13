@@ -9,7 +9,7 @@ namespace PenDynamicsPaint.Drawing;
 /// that moved onto <see cref="BrushSettings"/> has at least one brush where it is doing something
 /// -- a library where all four entries differ only in size would prove nothing about whether the
 /// settings actually reach the mark. That includes the two smoothing reaches, which between them
-/// cover path only, pressure only, both, and neither.
+/// cover path only, pressure only, both, and neither, and both ways of joining the samples up.
 /// </para>
 /// <para>
 /// Editing a brush in the panel changes the copy held there for the session. Nothing is written to
@@ -35,6 +35,10 @@ public static class BrushLibrary
             // Inking is where a steady line is worth a little lag. The pressure is left
             // unfiltered: this brush wants its line straightened, not its weight evened out.
             Smoothing = new StrokeSmoothing { Position = 55 },
+
+            // And where the corners of a polygon show most. A fitted path costs one more sample
+            // of lag on top of the filter's, which is the trade an inking brush is built to make.
+            Interpolation = StrokeInterpolation.Curved,
         },
 
         // Translucent and a constant width, which is the case Wash exists for: a stroke asked for
@@ -67,6 +71,7 @@ public static class BrushLibrary
 
             // Pressure drives size and opacity together here, so both halves are worth steadying.
             Smoothing = new StrokeSmoothing { Position = 30, Pressure = 40 },
+            Interpolation = StrokeInterpolation.Curved,
         },
 
         // The same engine with the spacing walked apart, which is what makes distance spacing

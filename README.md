@@ -33,6 +33,8 @@ So the two are apart. The Lab keeps the pipeline honest; this builds on top of i
   target, pressure curve and smoothing
 - **smoothing**: Krita's distance-weighted filter, with separate reaches for position and
   pressure, applied before any mark is placed
+- **curve fitting**: a cubic through the samples, so the ink between them follows an arc rather
+  than a chord
 - **two brush engines**: an antialiased taper swept between two round ends, and round dabs stamped
   at a distance interval
 - **two ways of compositing a stroke**: Wash, where the stroke composites into a layer of its own
@@ -124,6 +126,37 @@ same place because it is deterministic and because the stroke keeps the brush th
 The opening library covers all four combinations: the ink pen filters its path only, the marker its
 pressure only, the dab brush both, and the beaded brush neither.
 
+### Curve fitting
+
+A tablet reports every few document units, so joining the samples with chords draws a polygon, and
+the corners show on anything drawn quickly. Krita's Bezier interpolation, ported from `KDE/krita`
+at `75315b18`, fits a cubic through each pair of samples with tangents taken from their neighbours.
+
+This is a **second** kind of smoothing and a more visible one than filtering the samples: the filter
+decides where the samples are, this decides the path between them. They are independent, and either
+can run without the other.
+
+The fitted curve is flattened into short straight pieces before it reaches a brush engine, so
+`IBrushEngine` still takes two samples at a time and neither engine had to change. The dab engine
+is indifferent to the subdivision because its spacing rule carries an accumulator across calls and
+does not care how the path was cut up -- a property pinned when that engine was written, and this
+is what it buys.
+
+Two limits, both Krita's and both kept:
+
+- **It lags one sample.** The tangent at a sample is a central difference through its neighbours,
+  so the segment ending at a sample cannot be drawn until the next one arrives. The stroke's last
+  segment is flushed when the pen lifts.
+- **The first and last segments are only approximated.** They have no neighbour outside the stroke
+  to take a tangent from, so they use the single chord they have, which points a half-angle off the
+  true tangent. Measured on a twelve-point circle: the interior strays 0.08 units from the arc
+  against the polygon's 4.05, while the two end segments stray 2.5.
+
+One adaptation. Krita divides each tangent by the time elapsed across it, making its magnitude a
+speed; here they are divided by the number of sample intervals instead, making them a distance per
+sample. Not every backend supplies a usable clock, and a divisor that silently collapsed to one
+would make the first tangent count double.
+
 ### Layers
 
 The stack composites to a single bitmap, rebuilt only over the region that changed. A stroke in
@@ -148,9 +181,9 @@ the string can catch up. That needs a clock this application's input path does n
 approximating it from sample arrivals would make it rate-dependent in exactly the way the weighted
 filter is not.
 
-**No curve fitting between samples.** Krita also paints a Bezier through consecutive points rather
-than a straight segment, which is a second kind of smoothing and a more visible one. It changes
-what a segment is, so it belongs with the brush engines rather than with the filter.
+**No arc-length parameterisation.** The pen's readings are spread along a fitted segment linearly in
+the curve parameter rather than by distance. The two differ only where the control handles are very
+uneven, and by less than the pen's own resolution.
 
 **No raw-versus-processed comparison.** That is the Lab's signature feature and it does not
 translate: with per-brush dynamics there is no single processed stream for a raw one to be compared
