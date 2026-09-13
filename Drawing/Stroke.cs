@@ -1,4 +1,3 @@
-using Avalonia;
 using SkiaSharp;
 
 namespace PenDynamicsPaint.Drawing;
@@ -57,7 +56,7 @@ public readonly record struct PenOrientation(
 /// held it. See TheSevenPens/PenDynamicsLab#64.
 /// </remarks>
 public readonly record struct StrokeSample(
-    Point Position,
+    DocumentPoint Position,
     double RawPressure,
     PenOrientation Orientation,
     double ProcessedPressure,

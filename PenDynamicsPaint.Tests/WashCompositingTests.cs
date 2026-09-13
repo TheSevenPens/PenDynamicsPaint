@@ -1,4 +1,3 @@
-using Avalonia;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
 using Xunit;

@@ -393,7 +393,7 @@ public sealed class PaintSession : IDisposable
 
         // Recorded as the pen reported it. The filtered form is worked out below and not kept:
         // the document holds the pen's path, and replay runs the filter again.
-        var sample = new StrokeSample(new global::Avalonia.Point(documentX, documentY),
+        var sample = new StrokeSample(new DocumentPoint(documentX, documentY),
                                       pressure, orientation, active.Process(pressure),
                                       timestampMicroseconds);
         History.AddSample(sample);
@@ -642,6 +642,26 @@ public sealed class PaintSession : IDisposable
         // holding whatever was baked into it, and the next undo resets to that -- so work the user
         // cleared reappears on its own.
         foreach (var layer in _layers) layer.ClearEverything();
+
+        InvalidateComposite();
+    }
+
+    /// <summary>
+    /// Empty the active layer, leaving the rest of the stack alone.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not undoable</b>, like the other layer operations, and its strokes go with it. Leaving
+    /// them in the history would make the next undo remove a stroke whose pixels are already gone,
+    /// so the user would press undo and watch nothing happen -- the same reasoning as deleting a
+    /// layer, which this is the non-destructive half of.
+    /// </remarks>
+    public void ClearActiveLayer()
+    {
+        EndStroke();
+
+        var layer = ActiveLayer;
+        History.RemoveForLayer(layer.Id);
+        layer.ClearEverything();
 
         InvalidateComposite();
     }

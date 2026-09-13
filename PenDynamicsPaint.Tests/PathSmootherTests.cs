@@ -1,4 +1,3 @@
-using Avalonia;
 using PenDynamicsPaint.Drawing;
 using Xunit;
 
@@ -46,47 +45,47 @@ public class PathSmootherTests
     private const double Settled = 160;
 
     /// <summary>Hand tremor: small and fast, the thing a filter is meant to remove outright.</summary>
-    private static List<Point> Tremor(double step, double length = 800) =>
+    private static List<DocumentPoint> Tremor(double step, double length = 800) =>
         Wobble(step, length, amplitude: 3, wavelength: 7);
 
-    private static List<Point> Wobble(double step, double length, double amplitude, double wavelength)
+    private static List<DocumentPoint> Wobble(double step, double length, double amplitude, double wavelength)
     {
-        var points = new List<Point>();
+        var points = new List<DocumentPoint>();
         double k = 2 * Math.PI / wavelength;
         for (double d = 0; d <= length; d += step)
-            points.Add(new Point(OriginX + d, Baseline + amplitude * Math.Sin(d * k)));
+            points.Add(new DocumentPoint(OriginX + d, Baseline + amplitude * Math.Sin(d * k)));
         return points;
     }
 
-    private static StrokeSample At(Point p, double pressure = 1.0) =>
+    private static StrokeSample At(DocumentPoint p, double pressure = 1.0) =>
         new(p, pressure, PenOrientation.None, pressure);
 
-    private static List<Point> Smooth(IEnumerable<Point> path, StrokeSmoothing smoothing)
+    private static List<DocumentPoint> Smooth(IEnumerable<DocumentPoint> path, StrokeSmoothing smoothing)
     {
         var filter = new PathSmoother();
         return [.. path.Select(p => filter.Next(At(p), smoothing).Position)];
     }
 
     /// <summary>A moving average over the last <paramref name="window"/> samples: the naive filter.</summary>
-    private static List<Point> MovingAverage(IReadOnlyList<Point> path, int window)
+    private static List<DocumentPoint> MovingAverage(IReadOnlyList<DocumentPoint> path, int window)
     {
-        var output = new List<Point>();
+        var output = new List<DocumentPoint>();
         for (int i = 0; i < path.Count; i++)
         {
             int from = Math.Max(0, i - window + 1);
             double x = 0, y = 0;
             for (int j = from; j <= i; j++) { x += path[j].X; y += path[j].Y; }
             int n = i - from + 1;
-            output.Add(new Point(x / n, y / n));
+            output.Add(new DocumentPoint(x / n, y / n));
         }
         return output;
     }
 
     /// <summary>How far the path strays from the straight line, once the filter has settled.</summary>
-    private static double Amplitude(IReadOnlyList<Point> path, double step) =>
+    private static double Amplitude(IReadOnlyList<DocumentPoint> path, double step) =>
         path.Skip((int)(Settled / step)).Select(p => Math.Abs(p.Y - Baseline)).DefaultIfEmpty(0).Max();
 
-    private static double Distance(Point a, Point b) =>
+    private static double Distance(DocumentPoint a, DocumentPoint b) =>
         Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
     /// <summary>
@@ -97,7 +96,7 @@ public class PathSmootherTests
     /// is sampled twice as often, so its every second point sits exactly where a sparse point does.
     /// </returns>
     private static (double Moved, double Disagreement) AcrossRates(
-        Func<IReadOnlyList<Point>, List<Point>> filter)
+        Func<IReadOnlyList<DocumentPoint>, List<DocumentPoint>> filter)
     {
         var denseIn = Tremor(1.0);
         var sparseIn = Tremor(2.0);
@@ -188,7 +187,7 @@ public class PathSmootherTests
     }
 
     /// <summary>How far the filtered path trails the pen, once it has settled.</summary>
-    private static double SettledLag(IReadOnlyList<Point> raw, StrokeSmoothing? smoothing = null)
+    private static double SettledLag(IReadOnlyList<DocumentPoint> raw, StrokeSmoothing? smoothing = null)
     {
         var smoothed = Smooth(raw, smoothing ?? Smoothing);
         int from = (int)(Settled / 2.0);
@@ -246,7 +245,7 @@ public class PathSmootherTests
         Assert.Equal(0, filter.Count);
 
         // Somewhere else entirely. The first samples must land where they were put.
-        var elsewhere = new Point(900, 700);
+        var elsewhere = new DocumentPoint(900, 700);
         Assert.Equal(elsewhere, filter.Next(At(elsewhere), Smoothing).Position);
     }
 
@@ -297,7 +296,7 @@ public class PathSmootherTests
         var path = Tremor(2.0);
         double Jumpy(int i) => i % 2 == 0 ? 0.2 : 0.9;
 
-        (Point Position, double Pressure) Run(StrokeSmoothing s)
+        (DocumentPoint Position, double Pressure) Run(StrokeSmoothing s)
         {
             var filter = new PathSmoother();
             PathSmoother.Filtered last = default;
@@ -325,9 +324,9 @@ public class PathSmootherTests
         // Krita's behaviour, kept on purpose. The filter lags and nothing runs it out to the last
         // raw position; doing so would put an unfiltered hook on the end of every stroke. Pinned
         // so the shortfall is a decision on record rather than something discovered later.
-        var raw = new List<Point>();
-        for (double d = 0; d <= 200; d += 2) raw.Add(new Point(OriginX + d, Baseline));
-        for (double d = 2; d <= 60; d += 2) raw.Add(new Point(OriginX + 200, Baseline + d));
+        var raw = new List<DocumentPoint>();
+        for (double d = 0; d <= 200; d += 2) raw.Add(new DocumentPoint(OriginX + d, Baseline));
+        for (double d = 2; d <= 60; d += 2) raw.Add(new DocumentPoint(OriginX + 200, Baseline + d));
 
         var smoothed = Smooth(raw, Smoothing);
 

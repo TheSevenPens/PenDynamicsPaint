@@ -157,6 +157,29 @@ speed; here they are divided by the number of sample intervals instead, making t
 sample. Not every backend supplies a usable clock, and a divisor that silently collapsed to one
 would make the first tangent count double.
 
+### Framework independence
+
+`PenDynamicsPaint.Drawing` and `PenDynamicsPaint.Paint` name no UI framework type. Positions are
+`DocumentPoint`, a pair of doubles, rather than `Avalonia.Point`; the conversion to Skia's float
+`SKPoint` happens where a mark is actually drawn, which is once, at the end.
+
+Doubles rather than floats because a position arrives from the viewport's mapping already computed
+in double and then goes through the filter, the fitter and the spacing walk before it becomes a
+pixel. Narrowing at the front of that narrows before the arithmetic rather than after it.
+
+Skia is not excluded and the difference is worth stating: it is the raster backend, the thing that
+turns geometry into pixels, and an engine that could not name a canvas would have nothing to draw
+on. A UI framework is a way of getting a window, which none of this needs.
+
+The rule is checked rather than written down. `FrameworkIndependenceTests` walks every type in those
+namespaces -- base classes, interfaces, fields, properties, parameters, returns and generic
+arguments -- and fails if any of them mentions one. A convention nothing checks lasts until the next
+hurry, and one `using` is all it would take.
+
+The stronger version is a project boundary: move those namespaces into an assembly that does not
+reference Avalonia and let the compiler refuse. That is a restructure rather than a test, and worth
+doing; this holds the line until then.
+
 ### Layers
 
 The stack composites to a single bitmap, rebuilt only over the region that changed. A stroke in

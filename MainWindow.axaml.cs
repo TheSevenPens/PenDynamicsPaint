@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using PenDynamicsPaint.Drawing;
@@ -66,6 +68,7 @@ public partial class MainWindow : Window
         PaintView.Session = _paint;
         PaintView.UndoRequested += (_, _) => { _paint.Undo(); PaintView.Invalidate(); };
         PaintView.ClearRequested += (_, _) => { _paint.Clear(); PaintView.Invalidate(); };
+        PaintView.ClearLayerRequested += (_, _) => { _paint.ClearActiveLayer(); PaintView.Invalidate(); };
 
         // Fitted on the first real layout pass. Fitting to a zero-sized viewport would leave the
         // document off-screen at whatever the zoom clamp allowed.
@@ -117,6 +120,12 @@ public partial class MainWindow : Window
             _paint.Compositing = CompositingCombo.SelectedIndex == 1
                 ? StrokeCompositing.Direct
                 : StrokeCompositing.Wash;
+
+        // Tunnelling, not bubbling. A ComboBox swallows Space to open itself and a ListBox
+        // swallows Delete, so by the time a bubbling handler saw either, the shortcut would
+        // already have been eaten by whatever the user last clicked on.
+        AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
+        AddHandler(KeyUpEvent, Window_KeyUp, RoutingStrategies.Tunnel);
 
         _renderTimer.Tick += RenderTimer_Tick;
 
@@ -263,6 +272,57 @@ public partial class MainWindow : Window
         if (!_paint.MoveLayer(from, from + by)) return;
         RebuildLayerList();
         PaintView.Invalidate();
+    }
+
+    // -- Keyboard -------------------------------------------------
+
+    /// <summary>
+    /// True while the caret is in a text box, where these keys mean what they always mean.
+    /// </summary>
+    /// <remarks>
+    /// Without this, renaming a layer would clear it on the first keystroke that needed
+    /// correcting, and Ctrl+Z in the name box would undo a brush stroke rather than the typing.
+    /// Both are the sort of fault that only turns up once someone is using the thing.
+    /// </remarks>
+    private bool TypingSomewhere =>
+        TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;
+
+    private void Window_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (TypingSomewhere) return;
+
+        switch (e.Key)
+        {
+            // Space, because that is what every paint application uses for this, and because the
+            // off hand can reach it while the pen stays on the tablet. Held rather than toggled.
+            case Key.Space:
+                PaintView.PanModifierHeld = true;
+                e.Handled = true;
+                break;
+
+            case Key.Z when e.KeyModifiers.HasFlag(KeyModifiers.Control):
+                _paint.Undo();
+                PaintView.Invalidate();
+                e.Handled = true;
+                break;
+
+            // The active layer, not the document. Clearing what you are working on is the common
+            // case; clearing everything is still on the canvas menu for the other one.
+            case Key.Delete:
+            case Key.Back:
+                _paint.ClearActiveLayer();
+                PaintView.Invalidate();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void Window_KeyUp(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Space) return;
+
+        PaintView.PanModifierHeld = false;
+        e.Handled = true;
     }
 
     // -- The brush panel ------------------------------------------
@@ -501,6 +561,15 @@ public partial class MainWindow : Window
 
         int maxPressure = _penSession.MaxPressure;
         if (TopLevel.GetTopLevel(this) is not { } topLevel) return;
+
+        // A pan is a gesture made with the pen down, and the pen reports through all of it --
+        // under Wintab those samples never went near the viewport control, so dropping them has to
+        // happen here. Without this a pan would leave a stroke across everything it crossed.
+        if (PaintView.IsPanning)
+        {
+            _paint.EndStroke();
+            return;
+        }
 
         foreach (var pt in points)
         {

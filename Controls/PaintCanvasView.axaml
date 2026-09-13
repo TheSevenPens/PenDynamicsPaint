@@ -36,13 +36,17 @@
              onto a document that has its own size, and the Image below shows whatever region of
              it the viewport is currently over. -->
         <Border x:Name="ViewportHost" Background="{DynamicResource Pdl.Pane}" ClipToBounds="True"
+                Focusable="True"
                 Cursor="Cross">
             <Border.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Fit to view" Click="Fit_Click" />
                     <MenuItem Header="Actual size" Click="ZoomReset_Click" />
                     <Separator />
-                    <MenuItem Header="Undo last stroke" Click="Undo_Click" />
+                    <MenuItem Header="Undo last stroke" Click="Undo_Click"
+                              InputGesture="Ctrl+Z" />
+                    <MenuItem Header="Clear layer" Click="ClearLayer_Click"
+                              InputGesture="Delete" />
                     <MenuItem Header="Clear document" Click="Clear_Click" />
                 </ContextMenu>
             </Border.ContextMenu>

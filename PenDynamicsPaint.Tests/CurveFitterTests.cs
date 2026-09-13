@@ -1,4 +1,3 @@
-using Avalonia;
 using PenDynamicsPaint.Drawing;
 using Xunit;
 
@@ -22,29 +21,29 @@ namespace PenDynamicsPaint.Tests;
 public class CurveFitterTests
 {
     private const double Radius = 100;
-    private static readonly Point Centre = new(200, 200);
+    private static readonly DocumentPoint Centre = new(200, 200);
 
     /// <summary>Points around a circle, coarsely enough that a polygon through them is visible.</summary>
-    private static List<Point> Circle(int count, double sweep = 2 * Math.PI)
+    private static List<DocumentPoint> Circle(int count, double sweep = 2 * Math.PI)
     {
-        var points = new List<Point>();
+        var points = new List<DocumentPoint>();
         for (int i = 0; i < count; i++)
         {
             double angle = sweep * i / (count - 1);
-            points.Add(new Point(Centre.X + Radius * Math.Cos(angle),
+            points.Add(new DocumentPoint(Centre.X + Radius * Math.Cos(angle),
                                  Centre.Y + Radius * Math.Sin(angle)));
         }
         return points;
     }
 
-    private static StrokeSample At(Point p, double pressure = 1.0) =>
+    private static StrokeSample At(DocumentPoint p, double pressure = 1.0) =>
         new(p, pressure, PenOrientation.None, pressure);
 
     /// <summary>The whole painted path for a set of samples, flush included.</summary>
-    private static List<Point> Path(IEnumerable<Point> samples, StrokeInterpolation how)
+    private static List<DocumentPoint> Path(IEnumerable<DocumentPoint> samples, StrokeInterpolation how)
     {
         var fitter = new CurveFitter();
-        var path = new List<Point>();
+        var path = new List<DocumentPoint>();
 
         foreach (var p in samples)
             path.AddRange(fitter.Next(At(p), how).Select(s => s.Position));
@@ -54,10 +53,10 @@ public class CurveFitterTests
     }
 
     /// <summary>How far the path strays from the circle it was sampled from.</summary>
-    private static double RadialError(IEnumerable<Point> path) =>
+    private static double RadialError(IEnumerable<DocumentPoint> path) =>
         path.Select(p => Math.Abs(Distance(p, Centre) - Radius)).Max();
 
-    private static double Distance(Point a, Point b) =>
+    private static double Distance(DocumentPoint a, DocumentPoint b) =>
         Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
     [Fact]
@@ -112,7 +111,7 @@ public class CurveFitterTests
     }
 
     /// <summary>Worst radial error away from the first and last segments.</summary>
-    private static double Interior(List<Point> path, IReadOnlyList<Point> samples)
+    private static double Interior(List<DocumentPoint> path, IReadOnlyList<DocumentPoint> samples)
     {
         var (first, last) = InnerSpan(path, samples);
         return path.Skip(first).Take(last - first + 1)
@@ -120,14 +119,14 @@ public class CurveFitterTests
     }
 
     /// <summary>Worst radial error within the first and last segments.</summary>
-    private static double Ends(List<Point> path, IReadOnlyList<Point> samples)
+    private static double Ends(List<DocumentPoint> path, IReadOnlyList<DocumentPoint> samples)
     {
         var (first, last) = InnerSpan(path, samples);
         return Math.Max(path.Take(first + 1).Select(p => Math.Abs(Distance(p, Centre) - Radius)).Max(),
                         path.Skip(last).Select(p => Math.Abs(Distance(p, Centre) - Radius)).Max());
     }
 
-    private static (int First, int Last) InnerSpan(List<Point> path, IReadOnlyList<Point> samples) =>
+    private static (int First, int Last) InnerSpan(List<DocumentPoint> path, IReadOnlyList<DocumentPoint> samples) =>
         (path.FindIndex(p => Distance(p, samples[1]) < 1e-6),
          path.FindIndex(p => Distance(p, samples[^2]) < 1e-6));
 
@@ -137,9 +136,9 @@ public class CurveFitterTests
     /// between the samples, which is the whole point. So the chords are walked at the same
     /// resolution the fitted path is flattened to.
     /// </remarks>
-    private static List<Point> Chords(IReadOnlyList<Point> samples)
+    private static List<DocumentPoint> Chords(IReadOnlyList<DocumentPoint> samples)
     {
-        var path = new List<Point>();
+        var path = new List<DocumentPoint>();
         for (int i = 1; i < samples.Count; i++)
         {
             double length = Distance(samples[i - 1], samples[i]);
@@ -147,7 +146,7 @@ public class CurveFitterTests
             for (int j = 1; j <= pieces; j++)
             {
                 double t = (double)j / pieces;
-                path.Add(new Point(samples[i - 1].X + (samples[i].X - samples[i - 1].X) * t,
+                path.Add(new DocumentPoint(samples[i - 1].X + (samples[i].X - samples[i - 1].X) * t,
                                    samples[i - 1].Y + (samples[i].Y - samples[i - 1].Y) * t));
             }
         }
@@ -174,31 +173,31 @@ public class CurveFitterTests
     }
 
     /// <summary>Samples that reverse sharply, as a fast scribble gives.</summary>
-    private static List<Point> Scribble()
+    private static List<DocumentPoint> Scribble()
     {
         var rnd = new Random(7);
-        var samples = new List<Point>();
+        var samples = new List<DocumentPoint>();
         for (int i = 0; i < 60; i++)
-            samples.Add(new Point(20 + i * 9 + rnd.NextDouble() * 8, 150 + rnd.NextDouble() * 90));
+            samples.Add(new DocumentPoint(20 + i * 9 + rnd.NextDouble() * 8, 150 + rnd.NextDouble() * 90));
         return samples;
     }
 
     /// <summary>How far a point lies from the polyline through the samples.</summary>
-    private static double ToPolyline(Point p, IReadOnlyList<Point> samples)
+    private static double ToPolyline(DocumentPoint p, IReadOnlyList<DocumentPoint> samples)
     {
         double best = double.MaxValue;
         for (int i = 1; i < samples.Count; i++) best = Math.Min(best, ToSegment(p, samples[i - 1], samples[i]));
         return best;
     }
 
-    private static double ToSegment(Point p, Point a, Point b)
+    private static double ToSegment(DocumentPoint p, DocumentPoint a, DocumentPoint b)
     {
         double dx = b.X - a.X, dy = b.Y - a.Y;
         double lengthSquared = dx * dx + dy * dy;
         if (lengthSquared <= 0) return Distance(p, a);
 
         double t = Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / lengthSquared, 0, 1);
-        return Distance(p, new Point(a.X + dx * t, a.Y + dy * t));
+        return Distance(p, new DocumentPoint(a.X + dx * t, a.Y + dy * t));
     }
 
     [Fact]
@@ -220,8 +219,8 @@ public class CurveFitterTests
         // The failure a naive tangent scheme gives: control handles that overshoot turn a straight
         // run into a slack rope. Krita shortens them as the two end tangents converge in length,
         // which is exactly the case a straight line at a steady speed presents.
-        var samples = new List<Point>();
-        for (double x = 20; x <= 320; x += 25) samples.Add(new Point(x, 150));
+        var samples = new List<DocumentPoint>();
+        for (double x = 20; x <= 320; x += 25) samples.Add(new DocumentPoint(x, 150));
 
         var path = Path(samples, StrokeInterpolation.Curved);
 
@@ -237,7 +236,7 @@ public class CurveFitterTests
         var samples = Circle(8);
         var fitter = new CurveFitter();
 
-        var live = new List<Point>();
+        var live = new List<DocumentPoint>();
         foreach (var p in samples)
             live.AddRange(fitter.Next(At(p), StrokeInterpolation.Curved).Select(s => s.Position));
 
@@ -271,7 +270,7 @@ public class CurveFitterTests
         // toward wherever the last one finished.
         Assert.Empty(fitter.Flush(StrokeInterpolation.Curved));
 
-        var elsewhere = new Point(900, 700);
+        var elsewhere = new DocumentPoint(900, 700);
         var first = fitter.Next(At(elsewhere), StrokeInterpolation.Curved).ToList();
         Assert.Single(first);
         Assert.Equal(elsewhere, first[0].Position);
@@ -313,7 +312,7 @@ public class CurveFitterTests
     {
         // Repeated samples give a zero tangent, which has no direction to build a handle from.
         // Krita falls back to a straight piece; the arithmetic would otherwise divide by zero.
-        var samples = new List<Point>
+        var samples = new List<DocumentPoint>
         {
             new(100, 100), new(100, 100), new(100, 100), new(160, 100), new(160, 100),
         };

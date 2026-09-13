@@ -285,6 +285,62 @@ public class LayerStackTests
     }
 
     [Fact]
+    public void Clearing_a_layer_leaves_the_rest_of_the_stack_alone()
+    {
+        using var session = new PaintSession(240, 200);
+
+        Stroke(session, Red, 60);
+        session.AddLayer();
+        Stroke(session, Blue, 140);
+
+        session.ClearActiveLayer();
+
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 140));
+        Assert.Equal(Red, session.Bitmap.GetPixel(120, 60));
+        Assert.Equal(2, session.Layers.Count);
+    }
+
+    [Fact]
+    public void Clearing_a_layer_takes_its_strokes_with_it()
+    {
+        // Otherwise the next undo removes a stroke whose pixels are already gone, and the user
+        // presses undo and watches nothing happen -- the same reasoning as deleting a layer, which
+        // this is the non-destructive half of.
+        using var session = new PaintSession(240, 200);
+
+        Stroke(session, Red, 60);
+        session.AddLayer();
+        Stroke(session, Blue, 140);
+
+        session.ClearActiveLayer();
+        Assert.Single(session.History.Strokes);
+
+        Assert.True(session.Undo());
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 60));
+    }
+
+    [Fact]
+    public void Clearing_a_layer_drops_its_baseline_too()
+    {
+        // The lesson Clear had to learn: wiping only the visible pixels leaves the baseline
+        // holding whatever a merge baked in, and the next undo resets to it.
+        using var session = new PaintSession(240, 200);
+
+        Stroke(session, Red, 60);
+        session.AddLayer();
+        Stroke(session, Blue, 140);
+        Assert.True(session.MergeDown(1));
+
+        session.ClearActiveLayer();
+        Stroke(session, Red, 100);
+        Assert.True(session.Undo());
+
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 60));
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 140));
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 100));
+    }
+
+    [Fact]
     public void Clear_really_drops_the_merged_pixels_rather_than_hiding_them()
     {
         // Clear wipes what is on screen, but the merged pixels also live in the layer's replay
