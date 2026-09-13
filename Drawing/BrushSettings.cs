@@ -1,8 +1,8 @@
 namespace PenDynamicsPaint.Drawing;
 
 /// <summary>
-/// What the brush is configured to do: size, colour mode, which property pressure drives,
-/// and whether a zero-pressure sample still marks.
+/// Everything that decides what a brush's marks look like: which engine draws them, how big, how
+/// opaque, how far apart, and how the brush reads the pen.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,10 +20,15 @@ namespace PenDynamicsPaint.Drawing;
 /// capture it at stroke start. That state belongs to the drawing session.
 /// </para>
 /// <para>
-/// Deliberately not persisted with curve presets. Presets are the pressure pipeline; the ribbon
-/// is view state until there is a reason to save it. A preset that silently changed your brush
-/// size would be a genuinely bad surprise — the same reasoning that keeps <c>SmoothingOrder</c>
-/// on <c>UiSettings</c>.
+/// <b>The whole record is what a brush is</b>, and a stroke keeps a copy of the one that drew it.
+/// That is what makes an undo faithful: replay uses the engine, size, spacing and curve the stroke
+/// was actually made with rather than whatever is selected now. Before <see cref="Engine"/> and
+/// <see cref="Spacing"/> moved here they were application state, and switching brush and then
+/// undoing redrew the older strokes in the new brush's style.
+/// </para>
+/// <para>
+/// Not persisted to disk. The library of brushes is built in code and lives for the session;
+/// saving and loading them is a file format decision that has not been made.
 /// </para>
 /// </remarks>
 public sealed record BrushSettings
@@ -57,7 +62,16 @@ public sealed record BrushSettings
     /// </remarks>
     public const double MinStrokeWidth = 0.25;
 
+    /// <summary>The default spacing, as a fraction of a dab's diameter.</summary>
+    /// <remarks>
+    /// Ten marks across each dab's width, which reads as a continuous stroke rather than as
+    /// stamps. Ignored by <see cref="BrushEngineKind.Taper"/>, which has no marks to space.
+    /// </remarks>
+    public const double DefaultSpacing = 0.1;
+
     private readonly double _size = DefaultSize;
+    private readonly double _spacing = DefaultSpacing;
+    private readonly double _opacity = 1.0;
 
     /// <summary>
     /// Brush size in DIPs, clamped to [<see cref="MinSize"/>, <see cref="MaxSize"/>].
@@ -74,6 +88,42 @@ public sealed record BrushSettings
         get => _size;
         init => _size = double.IsNaN(value) ? DefaultSize : Math.Clamp(value, MinSize, MaxSize);
     }
+
+    /// <summary>What this brush is called in the picker. Nothing but the UI reads it.</summary>
+    public string Name { get; init; } = "Brush";
+
+    /// <summary>Which engine lays the marks down.</summary>
+    public BrushEngineKind Engine { get; init; } = BrushEngineKind.Taper;
+
+    /// <summary>
+    /// Distance between dabs, as a fraction of the dab's own diameter.
+    /// </summary>
+    /// <remarks>
+    /// A fraction rather than a distance, which is what keeps a stroke reading as one stroke while
+    /// pressure changes its width: pressure drives size, so it drives spacing with it. Raising it
+    /// toward 1 walks the marks apart until they bead.
+    /// </remarks>
+    public double Spacing
+    {
+        get => _spacing;
+        init => _spacing = double.IsNaN(value) ? DefaultSpacing : Math.Clamp(value, 0.01, 4.0);
+    }
+
+    /// <summary>
+    /// How opaque the brush is at full strength, before pressure has any say.
+    /// </summary>
+    /// <remarks>
+    /// Krita's brush opacity, and it is what Wash exists to make honest: a brush set to 15% should
+    /// put down 15% ink however many overlapping marks the stroke is made of.
+    /// </remarks>
+    public double Opacity
+    {
+        get => _opacity;
+        init => _opacity = double.IsNaN(value) ? 1 : Math.Clamp(value, 0, 1);
+    }
+
+    /// <summary>How this brush reads the pen.</summary>
+    public PressureCurve Curve { get; init; } = PressureCurve.Linear;
 
     /// <summary>How each new stroke picks its colour.</summary>
     public ColorMode ColorMode { get; init; } = ColorMode.Black;
@@ -98,14 +148,26 @@ public sealed record BrushSettings
         ? (float)Size
         : (float)Math.Max(MinStrokeWidth, pressure * Size);
 
+    /// <summary>Run one pen reading through this brush's curve.</summary>
+    /// <remarks>
+    /// The one place the curve is applied. The session calls it as each sample arrives and keeps
+    /// both values on the sample, so what the pen reported stays recoverable next to what the
+    /// brush made of it.
+    /// </remarks>
+    public double Process(double rawPressure) => Curve.Apply(rawPressure);
+
     /// <summary>
     /// Stroke opacity for a pipeline output value.
     /// </summary>
     /// <remarks>
-    /// Floored at 0.02 rather than 0 for the same reason: fully transparent is indistinguishable
-    /// from not drawing, and the faintest contact should still leave a trace.
+    /// <see cref="Opacity"/> sets the ceiling and pressure scales it, so a 15% brush never exceeds
+    /// 15% however hard it is pressed. Floored at 0.02 of that ceiling rather than at 0: fully
+    /// transparent is indistinguishable from not drawing, and the faintest contact should still
+    /// leave a trace.
     /// </remarks>
-    public float OpacityFor(double pressure) => PressureDrives == PressureControl.Opacity
-        ? (float)Math.Max(0.02, pressure)
-        : 1f;
+    public float OpacityFor(double pressure)
+    {
+        if (PressureDrives == PressureControl.Size) return (float)Opacity;
+        return (float)(Opacity * Math.Max(0.02, pressure));
+    }
 }

@@ -24,12 +24,16 @@ namespace PenDynamicsPaint.Drawing;
 /// stroke looking like one stroke as pressure changes its width. Since pressure drives size, it
 /// drives spacing with it -- the same coupling Krita's Pixel Brush has.
 /// </para>
+/// <para>
+/// The spacing value itself lives on <see cref="BrushSettings.Spacing"/> rather than here. An
+/// engine holding its own configuration would mean a stroke could not record what it was drawn
+/// with: the engine is shared between strokes and its settings would be whatever the last change
+/// left behind. What stays here is per-stroke state -- the accumulated distance -- which belongs to
+/// the act of drawing rather than to the brush.
+/// </para>
 /// </remarks>
 public sealed class DabBrushEngine : IBrushEngine
 {
-    /// <summary>Below this the marks merge into a ribbon; above it they read as separate stamps.</summary>
-    public const double DefaultSpacing = 0.1;
-
     private readonly DabSpacing _spacing = new();
 
     // One paint for the life of the engine. Allocating per dab would be allocating per few pixels
@@ -42,16 +46,6 @@ public sealed class DabBrushEngine : IBrushEngine
 
     /// <inheritdoc />
     public SKBlender? Blender { get; set; }
-
-    /// <summary>
-    /// Distance between marks, as a fraction of the mark's diameter.
-    /// </summary>
-    /// <remarks>
-    /// 0.1 puts ten marks across each dab's width, which reads as a continuous stroke. Raising it
-    /// toward 1 walks the marks apart until they bead, which is the setting that makes what this
-    /// engine is doing visible rather than merely different.
-    /// </remarks>
-    public double Spacing { get; set; } = DefaultSpacing;
 
     /// <inheritdoc />
     public void BeginStroke() => _spacing.Reset();
@@ -78,7 +72,7 @@ public sealed class DabBrushEngine : IBrushEngine
             return pressureFrom + (pressureTo - pressureFrom) * t;
         }
 
-        foreach (double at in _spacing.Walk(length, d => brush.StrokeWidthFor(PressureAt(d)) * Spacing))
+        foreach (double at in _spacing.Walk(length, d => brush.StrokeWidthFor(PressureAt(d)) * brush.Spacing))
         {
             double t = at / length;
             double pressure = PressureAt(at);

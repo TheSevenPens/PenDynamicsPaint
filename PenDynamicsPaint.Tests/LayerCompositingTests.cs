@@ -42,7 +42,7 @@ public class LayerCompositingTests
         for (double d = 0; d <= length; d += step)
         {
             double t = d / length;
-            s.AddSample(x0 + dx * t, y0 + dy * t, 1.0, 1.0, brush);
+            s.AddSample(x0 + dx * t, y0 + dy * t, 1.0, brush);
         }
 
         s.EndStroke();
@@ -174,7 +174,7 @@ public class LayerCompositingTests
 
         session.SetStrokeColor(Red);
         var brush = Opaque(40);
-        for (double x = 20; x <= 220; x += 2) session.AddSample(x, 100, 1.0, 1.0, brush);
+        for (double x = 20; x <= 220; x += 2) session.AddSample(x, 100, 1.0, brush);
 
         var midStroke = session.Bitmap.GetPixel(120, 100);
 
@@ -202,7 +202,7 @@ public class LayerCompositingTests
 
         session.SetStrokeColor(Red);
         var brush = Opaque(40);
-        for (double x = 20; x <= 220; x += 2) session.AddSample(x, 100, 1.0, 1.0, brush);
+        for (double x = 20; x <= 220; x += 2) session.AddSample(x, 100, 1.0, brush);
         session.EndStroke();
 
         using var asLeft = session.Bitmap.Copy();
@@ -232,7 +232,7 @@ public class LayerCompositingTests
         Assert.True(session.SetActiveLayer(0));
         session.SetStrokeColor(Red);
         var brush = Opaque(40);
-        for (double x = 20; x <= 220; x += 2) session.AddSample(x, 100, 1.0, 1.0, brush);
+        for (double x = 20; x <= 220; x += 2) session.AddSample(x, 100, 1.0, brush);
 
         Assert.Equal(Blue, session.Bitmap.GetPixel(70, 100));
         Assert.Equal(Red, session.Bitmap.GetPixel(180, 100));

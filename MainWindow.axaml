@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:PenDynamicsPaint.Controls"
         x:Class="PenDynamicsPaint.MainWindow"
@@ -7,9 +7,9 @@
         Background="{DynamicResource Pdl.Pane}">
 
     <DockPanel>
-        <!-- One bar, and only what a mark needs. The pen API belongs here for now because
-             choosing it is still a real part of using this; brush settings belong to a brush
-             and will move there when brushes exist. -->
+        <!-- Only what is not a brush and not a layer. Size, spacing, the pressure target and the
+             curve used to live here; they belong to a brush, and a bar is the wrong shape for
+             something you switch between rather than set once. -->
         <Border DockPanel.Dock="Top" Background="{DynamicResource Pdl.Surface}"
                 BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,0,0,1"
                 Padding="16,0">
@@ -20,41 +20,8 @@
                     <ComboBox x:Name="ApiCombo" Width="160" Height="32" VerticalAlignment="Center" />
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="Brush" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.Hint}" />
-                    <ComboBox x:Name="EngineCombo" Width="100" Height="32" VerticalAlignment="Center" />
-                </StackPanel>
-
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="Size" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.Hint}" />
-                    <Slider x:Name="SizeSlider" Width="140" Minimum="1" Maximum="200" Value="24"
-                            VerticalAlignment="Center" />
-                    <TextBlock x:Name="SizeLabel" Width="56" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.SubtleText}" />
-                </StackPanel>
-
-                <!-- Only meaningful for the dab brush. Raising it walks the marks apart until they
-                     bead, which is what makes distance spacing visible rather than merely different. -->
-                <StackPanel x:Name="SpacingPanel" Orientation="Horizontal" Spacing="8"
-                            VerticalAlignment="Center">
-                    <TextBlock Text="Spacing" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.Hint}" />
-                    <Slider x:Name="SpacingSlider" Width="110" Minimum="0.02" Maximum="1.5" Value="0.1"
-                            VerticalAlignment="Center" />
-                    <TextBlock x:Name="SpacingLabel" Width="40" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.SubtleText}" />
-                </StackPanel>
-
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="Pressure" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.Hint}" />
-                    <ComboBox x:Name="DrivesCombo" Width="110" Height="32" VerticalAlignment="Center" />
-                </StackPanel>
-
-                <!-- Only visible with pressure driving opacity. Opaque marks composite to the same
-                     colour however many overlap, so with Size the two modes are the same. -->
+                <!-- A document setting, not a brush one: it decides how a stroke reaches the
+                     layer, which is the same question whichever brush drew it. -->
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <TextBlock Text="Stroke" VerticalAlignment="Center" FontSize="12"
                                Foreground="{DynamicResource Pdl.Hint}" />
@@ -67,6 +34,122 @@
                                Foreground="{DynamicResource Pdl.SubtleText}" />
                 </Border>
             </StackPanel>
+        </Border>
+
+        <!-- Brushes on the left, layers on the right: one panel for what the mark is made of, one
+             for where it goes. Everything here edits the selected brush and nothing else, which is
+             the point of the whole change: these were application settings, so a brush you
+             switched to could not bring its own. -->
+        <Border DockPanel.Dock="Left" Width="256" Background="{DynamicResource Pdl.Surface}"
+                BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,0,1,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="12" Spacing="12">
+                    <TextBlock Text="Brush" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Pdl.GroupLabel}" />
+
+                    <ComboBox x:Name="BrushCombo" HorizontalAlignment="Stretch" Height="32" />
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Engine" FontSize="11"
+                                   Foreground="{DynamicResource Pdl.Hint}" />
+                        <ComboBox x:Name="EngineCombo" HorizontalAlignment="Stretch" Height="32" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Size" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBlock x:Name="SizeLabel" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                        </StackPanel>
+                        <Slider x:Name="SizeSlider" Minimum="1" Maximum="200" Value="40" />
+                    </StackPanel>
+
+                    <!-- Only the dab engine has marks to space, so the control follows the engine
+                         rather than sitting inert. -->
+                    <StackPanel x:Name="SpacingPanel" Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Spacing" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBlock x:Name="SpacingLabel" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                        </StackPanel>
+                        <Slider x:Name="SpacingSlider" Minimum="0.02" Maximum="2.0" Value="0.1" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Opacity" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBlock x:Name="BrushOpacityLabel" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                        </StackPanel>
+                        <Slider x:Name="BrushOpacitySlider" Minimum="0" Maximum="100" Value="100" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Pressure drives" FontSize="11"
+                                   Foreground="{DynamicResource Pdl.Hint}" />
+                        <ComboBox x:Name="DrivesCombo" HorizontalAlignment="Stretch" Height="32" />
+                    </StackPanel>
+
+                    <Rectangle Height="1" Fill="{DynamicResource Pdl.Divider}" Margin="0,4" />
+
+                    <TextBlock Text="Pressure curve" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Pdl.GroupLabel}" />
+
+                    <!-- Drawn rather than described. Three numbers say very little about how a
+                         brush will feel, and the shape says it at a glance. -->
+                    <Border Height="120" Background="{DynamicResource Pdl.PlotField}"
+                            BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1"
+                            CornerRadius="3">
+                        <Canvas x:Name="CurvePlot" ClipToBounds="True">
+                            <!-- Declared here rather than built in code so the theme resolves
+                                 their colours. A brush looked up from code-behind has to name a
+                                 theme variant to find one of these, and a shape whose Stroke came
+                                 back null draws nothing at all: an empty plot, with no error. -->
+                            <Line x:Name="CurveDiagonal" Stroke="{DynamicResource Pdl.Divider}"
+                                  StrokeThickness="1" StrokeDashArray="3,3" />
+                            <!-- No Fill. Setting one makes Avalonia close the figure, and the
+                                 closing segment is stroked too: a straight line from the last
+                                 point back to the first, which looks exactly like a second
+                                 reference diagonal. -->
+                            <Polyline x:Name="CurveLine" Stroke="{DynamicResource Pdl.CurveInk}"
+                                      StrokeThickness="2" />
+                        </Canvas>
+                    </Border>
+
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Start" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBlock x:Name="CurveStartLabel" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                        </StackPanel>
+                        <Slider x:Name="CurveStartSlider" Minimum="0" Maximum="1" Value="0" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="End" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBlock x:Name="CurveEndLabel" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                        </StackPanel>
+                        <Slider x:Name="CurveEndSlider" Minimum="0" Maximum="1" Value="1" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Exponent" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBlock x:Name="CurveExponentLabel" FontSize="11"
+                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                        </StackPanel>
+                        <Slider x:Name="CurveExponentSlider" Minimum="0.1" Maximum="4" Value="1" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
         <!-- Docked rather than floating: the stack is the document's structure, and it is read

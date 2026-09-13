@@ -78,67 +78,6 @@ public class StrokeHistoryTests
         Assert.Single(h.Strokes);
     }
 
-    // ── The cache decision ───────────────────────────────────────
-
-    [Fact]
-    public void AStrokeIsTaggedWithTheGenerationThatProducedIt()
-    {
-        var h = new StrokeHistory();
-        h.NoteParamsChanged();
-        h.NoteParamsChanged();
-        h.BeginStroke(BrushSettings.Default, Blue);
-        h.AddSample(new Point(0, 0), 0.5, PenOrientation.None, 0.25);
-        h.EndStroke();
-
-        Assert.Equal(h.ParamsVersion, h.Strokes[0].ParamsVersion);
-    }
-
-    [Fact]
-    public void ChangingParamsLeavesExistingStrokesStale()
-    {
-        var h = WithOneStroke(out var stroke);
-        Assert.Equal(h.ParamsVersion, stroke.ParamsVersion);
-
-        h.NoteParamsChanged();
-
-        // Staleness is a comparison, not a pass over the history — changing a curve a hundred
-        // times costs a hundred increments, not a hundred walks.
-        Assert.NotEqual(h.ParamsVersion, stroke.ParamsVersion);
-    }
-
-    [Fact]
-    public void RecachingReplacesOutputsAndClearsStaleness()
-    {
-        var h = WithOneStroke(out var stroke);
-        h.NoteParamsChanged();
-
-        stroke.RecacheOutputs([0.9, 0.8, 0.7], h.ParamsVersion);
-
-        Assert.Equal(h.ParamsVersion, stroke.ParamsVersion);
-        Assert.Equal([0.9, 0.8, 0.7], stroke.Samples.Select(s => s.ProcessedPressure));
-    }
-
-    [Fact]
-    public void RecachingLeavesTheAuthoritativeInputAlone()
-    {
-        // The whole point of the split: re-curving changes what the mark looks like, never what
-        // the pen did.
-        var h = WithOneStroke(out var stroke);
-        stroke.RecacheOutputs([0.1, 0.2, 0.3], h.ParamsVersion);
-
-        Assert.All(stroke.Samples, s => Assert.Equal(0.5, s.RawPressure));
-        Assert.Equal(new Point(2, 2), stroke.Samples[2].Position);
-    }
-
-    [Fact]
-    public void RecachingRejectsAMismatchedCount()
-    {
-        // A silent mismatch would misalign every sample after the gap, which draws a plausible
-        // but wrong stroke — far worse than a throw.
-        var h = WithOneStroke(out var stroke);
-        Assert.Throws<ArgumentException>(() => stroke.RecacheOutputs([0.1], h.ParamsVersion));
-    }
-
     // ── Undo ─────────────────────────────────────────────────────
 
     [Fact]

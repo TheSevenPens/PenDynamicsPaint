@@ -50,11 +50,31 @@ public sealed class PaintSession : IDisposable
     private int _activeIndex;
     private int _nextLayerId = 1;
 
-    private IBrushEngine _engine;
+    /// <summary>One engine per kind, kept for the life of the session.</summary>
+    /// <remarks>
+    /// An engine is a renderer, not a setting: it holds a paint, a path and per-stroke
+    /// accumulators, and every brush of a given kind can share one because only one stroke is ever
+    /// being drawn or replayed at a time. What differs between brushes lives on
+    /// <see cref="BrushSettings"/> and arrives per segment.
+    /// </remarks>
+    private readonly Dictionary<BrushEngineKind, IBrushEngine> _engines = [];
+
     private readonly SKBitmap _bitmap;
     private readonly SKCanvas _canvas;
     private StrokeSample? _lastSample;
     private SKColor _strokeColor = new(0x1A, 0x1A, 0x2E);
+
+    /// <summary>The brush the stroke in progress is committed to, or null between strokes.</summary>
+    /// <remarks>
+    /// Captured at the first sample and used for the rest of the stroke, so changing the brush
+    /// while the pen is down does not change the stroke under it. Without this the marks would
+    /// follow the picker while the recorded stroke kept the brush it started with, and an undo
+    /// would redraw something that had never been on the canvas.
+    /// </remarks>
+    private BrushSettings? _strokeBrush;
+
+    /// <summary>The engine drawing the stroke in progress. Follows <see cref="_strokeBrush"/>.</summary>
+    private IBrushEngine? _strokeEngine;
 
     // The stroke in progress, when compositing is Wash. A layer like any other -- transparent,
     // document-sized -- except that it is transient and sits directly above the layer being drawn
@@ -103,9 +123,8 @@ public sealed class PaintSession : IDisposable
     /// <summary>Index of <see cref="ActiveLayer"/> in <see cref="Layers"/>.</summary>
     public int ActiveLayerIndex => _activeIndex;
 
-    public PaintSession(int width, int height, IBrushEngine? engine = null)
+    public PaintSession(int width, int height)
     {
-        _engine = engine ?? new RoundBrushEngine();
         Width = Math.Max(1, width);
         Height = Math.Max(1, height);
 
@@ -144,6 +163,21 @@ public sealed class PaintSession : IDisposable
     /// hidden or changing opacity. Every one of those can alter any pixel of the document.
     /// </remarks>
     public void InvalidateComposite() => MarkStale(SKRectI.Create(Width, Height));
+
+    /// <summary>The engine for a brush, made on first use and kept.</summary>
+    private IBrushEngine EngineFor(BrushSettings brush)
+    {
+        if (_engines.TryGetValue(brush.Engine, out var engine)) return engine;
+
+        engine = brush.Engine switch
+        {
+            BrushEngineKind.Dabs => new DabBrushEngine(),
+            _ => new RoundBrushEngine(),
+        };
+
+        _engines[brush.Engine] = engine;
+        return engine;
+    }
 
     // -- Layers ---------------------------------------------------
 
@@ -303,11 +337,14 @@ public sealed class PaintSession : IDisposable
     /// this point knows about zoom or pan, which is the point of doing the mapping at the edge:
     /// a stroke is a set of document positions whatever the view was doing while it was drawn.
     /// </remarks>
-    public void AddSample(double documentX, double documentY, double rawPressure,
-                          double processedPressure, BrushSettings brush,
+    /// <param name="brush">
+    /// The brush to start a stroke with. Read only at the first sample: the rest of the stroke uses
+    /// the copy taken then, so changing brush mid-gesture takes effect on the next stroke.
+    /// </param>
+    public void AddSample(double documentX, double documentY, double pressure, BrushSettings brush,
                           PenOrientation orientation = default, long timestampMicroseconds = 0)
     {
-        if (rawPressure <= 0)
+        if (pressure <= 0)
         {
             EndStroke();
             return;
@@ -320,21 +357,27 @@ public sealed class PaintSession : IDisposable
 
         if (_lastSample is null)
         {
+            _strokeBrush = brush;
+            _strokeEngine = EngineFor(brush);
             History.BeginStroke(brush, _strokeColor, ActiveLayer.Id);
-            BeginLayerIfWashing();
-            _engine.BeginStroke();
+            BeginLayerIfWashing(_strokeEngine);
+            _strokeEngine.BeginStroke();
         }
 
+        var active = _strokeBrush!;
+        double processed = active.Process(pressure);
+
         var sample = new StrokeSample(new global::Avalonia.Point(documentX, documentY),
-                                      rawPressure, orientation, processedPressure,
+                                      pressure, orientation, processed,
                                       timestampMicroseconds);
         History.AddSample(sample);
 
-        if (_lastSample is { } from && (brush.DrawAtZeroPressure || processedPressure > 0))
+        if (_lastSample is { } from && (active.DrawAtZeroPressure || processed > 0))
         {
             var target = _layerActive ? _strokeLayer!.Canvas : ActiveLayer.Canvas;
-            _engine.DrawSegment(target, from, sample, brush, _strokeColor, PressureChannel.Processed);
-            MarkStale(SegmentBounds(from, sample, brush));
+            _strokeEngine!.DrawSegment(target, from, sample, active, _strokeColor,
+                                       PressureChannel.Processed);
+            MarkStale(SegmentBounds(from, sample, active));
         }
 
         _lastSample = sample;
@@ -345,13 +388,16 @@ public sealed class PaintSession : IDisposable
     {
         if (_lastSample is null) return;   // guarded, so the engine's brackets stay in pairs
         _lastSample = null;
-        _engine.EndStroke();
+        _strokeEngine?.EndStroke();
         History.EndStroke();
-        MergeStrokeLayer();
+        MergeStrokeLayer(_strokeEngine);
+
+        _strokeBrush = null;
+        _strokeEngine = null;
     }
 
     /// <summary>Start a fresh stroke layer, if this stroke is being washed.</summary>
-    private void BeginLayerIfWashing()
+    private void BeginLayerIfWashing(IBrushEngine engine)
     {
         if (Compositing != StrokeCompositing.Wash) return;
 
@@ -363,7 +409,7 @@ public sealed class PaintSession : IDisposable
         _strokeLayer ??= new Layer(0, "stroke", Width, Height);
         _strokeLayer.Canvas.Clear(SKColors.Transparent);
 
-        _engine.Blender = blender;
+        engine.Blender = blender;
         _layerActive = true;
     }
 
@@ -382,13 +428,13 @@ public sealed class PaintSession : IDisposable
     /// the merge is the picture that was already on screen.
     /// </para>
     /// </remarks>
-    private void MergeStrokeLayer()
+    private void MergeStrokeLayer(IBrushEngine? engine)
     {
         if (!_layerActive || _strokeLayer is null) return;
 
         _strokeLayer.DrawContentOnto(ActiveLayer.Canvas);
 
-        _engine.Blender = null;
+        if (engine is not null) engine.Blender = null;
         _layerActive = false;
     }
 
@@ -526,35 +572,6 @@ public sealed class PaintSession : IDisposable
     /// <summary>Set the colour subsequent strokes are drawn in.</summary>
     public void SetStrokeColor(SKColor color) => _strokeColor = color;
 
-    /// <summary>
-    /// Draw subsequent strokes with a different engine. The document is kept; the previous engine
-    /// is disposed.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Any stroke in progress is ended first, since one already half drawn by a swept taper cannot
-    /// be finished by stamped dabs.
-    /// </para>
-    /// <para>
-    /// <b>A stroke does not record which engine drew it</b>, so an undo replays everything with
-    /// whichever engine is current. Switching engine and then undoing therefore redraws the older
-    /// strokes in the new engine's style. That is a real limitation rather than an oversight: it
-    /// waits on strokes carrying their own brush definition, which is where per-brush settings are
-    /// heading anyway.
-    /// </para>
-    /// </remarks>
-    public void UseEngine(IBrushEngine engine)
-    {
-        ArgumentNullException.ThrowIfNull(engine);
-        if (ReferenceEquals(engine, _engine)) return;
-
-        EndStroke();
-
-        var old = _engine;
-        _engine = engine;
-        old.Dispose();
-    }
-
     /// <summary>Clear one layer to its baseline and replay the strokes that belong to it.</summary>
     private void RepaintLayer(int layerId)
     {
@@ -578,26 +595,31 @@ public sealed class PaintSession : IDisposable
     /// </remarks>
     private void Replay(Stroke stroke, Layer layer)
     {
-        BeginLayerIfWashing();
-        _engine.BeginStroke();
+        // The stroke's own brush, so its engine, size, spacing and curve are the ones it was drawn
+        // with. Replaying through whatever is selected now is how an undo used to redraw older
+        // strokes in a brush they were never made with.
+        var engine = EngineFor(stroke.Brush);
+
+        BeginLayerIfWashing(engine);
+        engine.BeginStroke();
 
         var target = _layerActive ? _strokeLayer!.Canvas : layer.Canvas;
         var samples = stroke.Samples;
         for (int i = 1; i < samples.Count; i++)
         {
             if (!stroke.Brush.DrawAtZeroPressure && samples[i].ProcessedPressure <= 0) continue;
-            _engine.DrawSegment(target, samples[i - 1], samples[i],
-                                stroke.Brush, stroke.Color, PressureChannel.Processed);
+            engine.DrawSegment(target, samples[i - 1], samples[i],
+                               stroke.Brush, stroke.Color, PressureChannel.Processed);
         }
 
-        _engine.EndStroke();
+        engine.EndStroke();
 
         // Not MergeStrokeLayer: that merges onto the active layer, and a replay is redrawing
         // whichever layer the stroke belonged to, which need not be the one in front of the pen.
         if (_layerActive && _strokeLayer is not null)
         {
             _strokeLayer.DrawContentOnto(layer.Canvas);
-            _engine.Blender = null;
+            engine.Blender = null;
             _layerActive = false;
         }
     }
@@ -608,6 +630,6 @@ public sealed class PaintSession : IDisposable
         foreach (var layer in _layers) layer.Dispose();
         _canvas.Dispose();
         _bitmap.Dispose();
-        _engine.Dispose();
+        foreach (var engine in _engines.Values) engine.Dispose();
     }
 }

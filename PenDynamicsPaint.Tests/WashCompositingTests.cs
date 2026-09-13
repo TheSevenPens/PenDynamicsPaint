@@ -40,7 +40,7 @@ public class WashCompositingTests
         var brush = BrushSettings.Default with { Size = size, PressureDrives = PressureControl.Opacity };
 
         for (double x = 40; x <= 200; x += spacing)
-            session.AddSample(x, 100, pressure, pressure, brush);
+            session.AddSample(x, 100, pressure, brush);
 
         session.EndStroke();
         return session;
@@ -112,7 +112,7 @@ public class WashCompositingTests
         for (double x = 40; x <= 360; x += 0.5)
         {
             double p = 0.1 + 0.7 * (x - 40) / 320;   // 0.1 at the left, 0.8 at the right
-            session.AddSample(x, 100, p, p, brush);
+            session.AddSample(x, 100, p, brush);
         }
         session.EndStroke();
 
@@ -133,12 +133,12 @@ public class WashCompositingTests
         var session = new PaintSession(240, 200) { Compositing = StrokeCompositing.Wash };
         var brush = BrushSettings.Default with { Size = 40, PressureDrives = PressureControl.Opacity };
 
-        for (double x = 40; x <= 200; x += 0.5) session.AddSample(x, 100, 0.15, 0.15, brush);
+        for (double x = 40; x <= 200; x += 0.5) session.AddSample(x, 100, 0.15, brush);
         session.EndStroke();
         double before = ApparentAlpha(session, 120, 100);
 
         // A second stroke elsewhere, then undo it. The first must look exactly as it did.
-        for (double x = 40; x <= 200; x += 0.5) session.AddSample(x, 160, 0.5, 0.5, brush);
+        for (double x = 40; x <= 200; x += 0.5) session.AddSample(x, 160, 0.5, brush);
         session.EndStroke();
         Assert.True(session.Undo());
 
