@@ -62,6 +62,24 @@ public partial class MainWindow : Window
     /// <summary>The brush strokes are started with.</summary>
     private BrushSettings Brush => _brushes[_brushIndex];
 
+    /// <summary>What the window is drawing on, for a test that drives the window itself.</summary>
+    /// <remarks>
+    /// The seam the window tests need and the only one they need. Everything else they touch is a
+    /// real control: the point is to exercise what the window does with a click rather than to
+    /// reach past it -- see TheSevenPens/PenDynamicsPaint#16 for the faults that went unseen
+    /// without it.
+    /// </remarks>
+    internal PaintSession Session => _paint;
+
+    /// <inheritdoc cref="Brush"/>
+    internal BrushSettings CurrentBrush => Brush;
+
+    /// <summary>The ink swatches, in the order they appear.</summary>
+    internal IReadOnlyList<Border> Swatches => _swatches;
+
+    /// <inheritdoc cref="Inks"/>
+    internal static IReadOnlyList<(string Name, SKColor Colour)> InkChoices => Inks;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -490,7 +508,7 @@ public partial class MainWindow : Window
     /// pointed at the new one: the view, the layer list, and the compositing choice, which belongs
     /// to the application rather than to the file and so is re-applied rather than carried over.
     /// </remarks>
-    private void AdoptDocument(PaintSession session, IStorageFile? from)
+    internal void AdoptDocument(PaintSession session, IStorageFile? from)
     {
         var old = _paint;
 
