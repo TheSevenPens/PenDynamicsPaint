@@ -274,11 +274,20 @@ ink and then reads that diluted trail back, so the dilution compounds and the co
 a few dab widths; at exactly 1 there is no ink in the mix and it sustains itself indefinitely. The
 setting is therefore nothing like linear. That is libmypaint's arithmetic rather than a choice here.
 
+**A smudge moves paint rather than adding it**, and that needs its own compositing. Painting a dab
+over the canvas can only ever put more paint down, so a smudge built on source-over copies its
+colour onward for as long as the stroke lasts and the mark it came from never loses anything. The
+canvas is pulled *towards* the dab instead: where the brush is carrying less paint than the canvas
+holds, the canvas ends up with less. That is what makes a mark spread thinner instead of being
+duplicated, and what makes a trail fade as the paint runs out. Skia has no such blend mode, so it is
+a runtime blender like `AlphaDarken`, ported from `draw_dab_pixels_BlendMode_Normal_and_Eraser`.
+
+The dab's colour is divided by that target alpha and the blend multiplies it back. Doing only the
+division leaves every dab too bright; doing neither leaves it too dark.
+
 Ported from the **legacy** path of `update_smudge_color` and `apply_smudge`. The other path mixes
 through libmypaint's spectral pigment model, which is a much larger piece of work and a different
-question from whether paint moves at all. One deviation: where the picked-up colour is transparent,
-libmypaint erases towards that transparency, and nothing here erases -- the dab is thinned instead,
-so a smudge dragged off the edge of a painting fades out where MyPaint would rub out.
+question from whether paint moves at all.
 
 ### Filtering tilt
 

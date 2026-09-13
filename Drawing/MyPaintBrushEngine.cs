@@ -281,13 +281,16 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         float alpha = Alpha(brush, inputs);
         if (alpha <= 0) return;
 
-        if (!Smudged(ref color, at, radius, brush, inputs)) return;
+        double? smudgeTarget = Smudged(ref color, at, radius, brush, inputs);
+        if (smudgeTarget is double target && target <= 0) return;
 
         color = Tinted(color, brush, inputs);
 
         float hardness = Math.Clamp(brush[MyPaintSetting.Hardness].ValueFor(inputs), 0f, 1f);
 
-        _paint.Blender = Blender;
+        // A smudge moves paint rather than adding it, so it composites by pulling the canvas
+        // towards the dab. Everything else lays its mark over what is there.
+        _paint.Blender = smudgeTarget is double t ? SmudgeBlend.For(t) : Blender;
         _paint.Color = color.WithAlpha((byte)Math.Clamp(alpha * 255, 0, 255));
 
         // The long axis keeps the radius and the short one is squeezed, which is why the bounds
@@ -342,15 +345,23 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// for a while and is put down further along.
     /// </para>
     /// <para>
-    /// Returns false when the dab should not be drawn, which is <c>smudge_transparency</c>
-    /// refusing to pick anything up off bare canvas.
+    /// Returns the alpha the canvas should be pulled towards, or null where the brush does not
+    /// smudge at all and the dab is an ordinary mark. A target of zero means there was nothing to
+    /// pick up and the dab is not drawn.
+    /// </para>
+    /// <para>
+    /// <b>The colour is divided by that target and not multiplied back here.</b> That is
+    /// libmypaint's arrangement and it only works if the blend multiplies it again while
+    /// interpolating the canvas towards it -- see <see cref="SmudgeBlend"/>. Doing both here
+    /// instead cancels out exactly, and the dab lands at full strength: a smudge that copies
+    /// colour onwards forever instead of running out, which is what this did at first.
     /// </para>
     /// </remarks>
-    private bool Smudged(ref SKColor color, DocumentPoint at, double radius,
-                         MyPaintBrush brush, in BrushInputs inputs)
+    private double? Smudged(ref SKColor color, DocumentPoint at, double radius,
+                            MyPaintBrush brush, in BrushInputs inputs)
     {
         var setting = brush[MyPaintSetting.Smudge];
-        if (setting.BaseValue == 0 && setting.IsConstant) return true;
+        if (setting.BaseValue == 0 && setting.IsConstant) return null;
 
         double smudge = setting.ValueFor(inputs);
         double length = brush[MyPaintSetting.SmudgeLength].ValueFor(inputs);
@@ -359,19 +370,18 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         // for a reading to blend into and libmypaint does not take one.
         if (length < 1.0 && SampleSource is { } canvas)
         {
-            if (!PickUp(canvas, at, radius, length, brush, inputs)) return false;
+            if (!PickUp(canvas, at, radius, length, brush, inputs)) return 0;
         }
 
-        if (smudge <= 0) return true;
+        if (smudge <= 0) return null;
 
         double factor = Math.Min(1.0, smudge);
 
-        // Where the carried colour is transparent the dab is meant to erase towards that
-        // transparency. Nothing here erases, so the dab is thinned instead: it lays less ink rather
-        // than taking ink away. A smudge dragged off the edge of a painting therefore fades out
-        // where libmypaint would rub out, and that is the one place this parts company with it.
+        // How opaque the canvas should be left where this dab lands. Carrying thin paint over a
+        // solid mark pulls the mark thinner, which is what moving paint means and what keeps a
+        // smudge from being a copy.
         double targetAlpha = Math.Clamp((1 - factor) + factor * _smudgeA, 0, 1);
-        if (targetAlpha <= 0) return false;
+        if (targetAlpha <= 0) return 0;
 
         double Mix(double carried, double ink) =>
             (factor * carried * 255 + (1 - factor) * ink) / targetAlpha;
@@ -380,9 +390,9 @@ public sealed class MyPaintBrushEngine : IBrushEngine
             (byte)Math.Clamp(Mix(_smudgeR, color.Red), 0, 255),
             (byte)Math.Clamp(Mix(_smudgeG, color.Green), 0, 255),
             (byte)Math.Clamp(Mix(_smudgeB, color.Blue), 0, 255),
-            (byte)Math.Clamp(color.Alpha * targetAlpha, 0, 255));
+            color.Alpha);
 
-        return true;
+        return targetAlpha;
     }
 
     /// <summary>Read the canvas under the dab and blend it into the colour being carried.</summary>

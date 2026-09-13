@@ -106,6 +106,19 @@ public class SmudgeTests
         return c.Red - c.Blue;
     }
 
+    /// <summary>How much red was left along a stretch of the drag.</summary>
+    /// <remarks>
+    /// Summed rather than sampled at a point. A correct smudge fades as it goes, so any single
+    /// point is somewhere on a slope and a threshold there is a statement about the slope's
+    /// steepness; the total is a statement about how much paint was moved.
+    /// </remarks>
+    private static int RedAlong(PaintSession session, int from, int to)
+    {
+        int total = 0;
+        for (int x = from; x < to; x++) total += Math.Max(0, Redness(session, x, 160));
+        return total;
+    }
+
     [Fact]
     public void A_smudging_stroke_carries_colour_off_a_mark_and_onto_bare_canvas()
     {
@@ -114,10 +127,62 @@ public class SmudgeTests
         PaintTheBar(session, Red);
         DragAcross(session, Smudging(smudge: 1.0, length: 0.8));
 
-        // Well clear of the bar, where nothing red was ever painted.
-        Assert.True(Redness(session, 320, 160) > 40,
-            "the smudge carried nothing away from the bar: the canvas at x=320 is " +
-            $"{session.Bitmap.GetPixel(320, 160)}");
+        // Clear of the bar, where nothing red was ever painted. Close to it rather than far,
+        // because a smudge that moves paint runs out: there is only so much to carry, and how far
+        // it reaches is a question for the length rather than for this.
+        Assert.True(Redness(session, 170, 160) > 20,
+            "the smudge carried nothing away from the bar: the canvas at x=170 is " +
+            $"{session.Bitmap.GetPixel(170, 160)}");
+    }
+
+    [Fact]
+    public void A_smudge_moves_paint_rather_than_copying_it()
+    {
+        // The difference between smudging and painting in a colour picked off the canvas, and the
+        // thing that was wrong at first: the mark being dragged from has to end up with less paint
+        // in it.
+        //
+        // Painting a dab over the canvas can only ever add, so a smudge built that way copies its
+        // colour onward for as long as the stroke lasts and the mark it came from is untouched. It
+        // composites by pulling the canvas towards the dab instead, which takes paint away where
+        // the brush is carrying less than the canvas holds.
+        using var session = new PaintSession(900, 320);
+
+        PaintTheBar(session, Red);
+
+        using var before = session.Bitmap.Copy();
+        int wasRed = before.GetPixel(BarX, 160).Red - before.GetPixel(BarX, 160).Blue;
+
+        DragAcross(session, Smudging(smudge: 1.0, length: 0.8));
+
+        int nowRed = Redness(session, BarX, 160);
+
+        Assert.True(nowRed < wasRed / 2,
+            $"the bar still holds {nowRed} of its {wasRed} where the smudge crossed it, so the " +
+            "paint was copied rather than moved");
+
+        // Thinned, not erased outright: this is a smudge and not a rubber.
+        Assert.True(nowRed > 0, "the smudge wiped the bar out entirely");
+    }
+
+    [Fact]
+    public void The_trail_fades_as_the_paint_runs_out()
+    {
+        // A brush carrying paint has a finite amount of it. The old arrangement laid the same
+        // solid colour at every distance -- it was reading its own trail and topping itself up --
+        // and the giveaway was that the trail never got any paler however far it went.
+        using var session = new PaintSession(900, 320);
+
+        PaintTheBar(session, Red);
+        DragAcross(session, Smudging(smudge: 1.0, length: 0.8));
+
+        int near = Redness(session, 175, 160);
+        int middle = Redness(session, 230, 160);
+        int far = Redness(session, 330, 160);
+
+        Assert.True(near > middle, $"the trail did not fade: {near} then {middle}");
+        Assert.True(middle > far, $"the trail did not keep fading: {middle} then {far}");
+        Assert.True(far < near / 3, $"the trail barely faded at all: {near} then {far}");
     }
 
     [Fact]
@@ -136,16 +201,17 @@ public class SmudgeTests
     }
 
     [Fact]
-    public void How_long_a_colour_survives_being_dragged_over_another_is_what_the_length_sets()
+    public void How_far_paint_is_carried_is_what_the_length_sets()
     {
         // smudge_length is how long the brush holds on to what it picked up, and the honest way to
-        // measure that is to make it cross something else. Distance alone will not do it: a smudge
-        // reads the surface it is painting, so past the first mark it is reading its own trail and
-        // topping itself up, and red travels to the edge of the canvas at every length.
+        // measure that is how much paint is still on the brush some way past a mark it crossed.
         //
-        // Crossing the blue bar breaks that loop. Then the question is whether the red on the brush
-        // outlasts the blue being laid over it, and the length is exactly what decides.
-        int RedPastTheBlue(double length)
+        // Which colour wins does not answer it: whatever the brush last crossed dominates the
+        // pickup at every length, so both a brief and a lasting smudge come out of the blue bar
+        // blue. The difference is how much of it there still is further on -- a brush with a long
+        // memory is still putting paint down where a brief one has already put everything down.
+        // An earlier version of this compared the colours and measured nothing.
+        int CarriedPast(double length)
         {
             using var session = new PaintSession(900, 320);
 
@@ -153,15 +219,18 @@ public class SmudgeTests
             PaintTheBar(session, Blue, x: 320);
             DragAcross(session, Smudging(smudge: 1.0, length: length));
 
-            return Redness(session, 440, 160);
+            // Total ink well past the blue bar. Green is the channel neither bar is made of, so
+            // how far it falls below white measures paint of either colour.
+            int ink = 0;
+            for (int x = 345; x < 560; x++) ink += 255 - session.Bitmap.GetPixel(x, 160).Green;
+            return ink;
         }
 
-        int brief = RedPastTheBlue(0.2);
-        int lasting = RedPastTheBlue(0.9);
+        int brief = CarriedPast(0.2);
+        int lasting = CarriedPast(0.9);
 
-        // A short memory comes out of the blue bar blue; a long one is still carrying red.
-        Assert.True(brief < -60, $"a short smudge should be blue past the blue bar, not {brief}");
-        Assert.True(lasting > 40, $"a long smudge should still be red past it, not {lasting}");
+        Assert.True(lasting > brief * 3,
+            $"a long smudge should carry far more paint past the bar: {lasting} against {brief}");
     }
 
     [Fact]
@@ -240,14 +309,14 @@ public class SmudgeTests
             PaintTheBar(session, Red);
             DragAcross(session, Smudging(smudge: 1.0, length: 0.8));
 
-            return Redness(session, 320, 160);
+            return Redness(session, 170, 160);
         }
 
         int washed = Carried(StrokeCompositing.Wash);
         int direct = Carried(StrokeCompositing.Direct);
 
-        Assert.True(washed > 40, $"the washed smudge carried nothing: {washed}");
-        Assert.True(Math.Abs(washed - direct) < 25,
+        Assert.True(washed > 20, $"the washed smudge carried nothing: {washed}");
+        Assert.True(Math.Abs(washed - direct) < 15,
             $"the two compositing modes smudge differently: {washed} washed against {direct} direct");
     }
 
