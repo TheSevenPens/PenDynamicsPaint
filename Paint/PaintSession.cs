@@ -646,6 +646,26 @@ public sealed class PaintSession : IDisposable
         InvalidateComposite();
     }
 
+    /// <summary>
+    /// Empty the active layer, leaving the rest of the stack alone.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not undoable</b>, like the other layer operations, and its strokes go with it. Leaving
+    /// them in the history would make the next undo remove a stroke whose pixels are already gone,
+    /// so the user would press undo and watch nothing happen -- the same reasoning as deleting a
+    /// layer, which this is the non-destructive half of.
+    /// </remarks>
+    public void ClearActiveLayer()
+    {
+        EndStroke();
+
+        var layer = ActiveLayer;
+        History.RemoveForLayer(layer.Id);
+        layer.ClearEverything();
+
+        InvalidateComposite();
+    }
+
     /// <summary>Set the colour subsequent strokes are drawn in.</summary>
     public void SetStrokeColor(SKColor color) => _strokeColor = color;
 

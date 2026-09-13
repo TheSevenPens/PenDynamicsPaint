@@ -41,9 +41,42 @@ public partial class PaintCanvasView : UserControl
 
     private bool _panning;
     private Point _panFrom;
+    private bool _panModifierHeld;
 
     /// <summary>Where the document is and how big, in this viewport.</summary>
     public PaintViewport Viewport { get; } = new();
+
+    /// <summary>
+    /// Whether the pan key is down, so a drag moves the view instead of drawing.
+    /// </summary>
+    /// <remarks>
+    /// Set by the window, which is where key events arrive. A pen has no way to press a key, so
+    /// this is the off hand's job -- which is exactly how panning works in every paint application
+    /// that expects you to be holding a stylus.
+    /// </remarks>
+    public bool PanModifierHeld
+    {
+        get => _panModifierHeld;
+        set
+        {
+            if (_panModifierHeld == value) return;
+            _panModifierHeld = value;
+
+            // A hand while the key is down, so it is visible that the next drag will not draw.
+            Cursor = value ? new Cursor(StandardCursorType.Hand) : Cursor.Default;
+
+            // Letting go mid-drag ends the pan rather than leaving the view stuck to the pointer.
+            if (!value) _panning = false;
+        }
+    }
+
+    /// <summary>True while a drag is moving the view. Pen samples are dropped for the duration.</summary>
+    /// <remarks>
+    /// The pen keeps reporting through the whole gesture -- under Wintab it never went through
+    /// this control at all -- so the window has to be told to throw those samples away, or a pan
+    /// would leave a stroke across everything it passed over.
+    /// </remarks>
+    public bool IsPanning => _panning;
 
     /// <summary>The document being shown. Set by the window once the session exists.</summary>
     public PaintSession? Session { get; set; }
@@ -53,6 +86,9 @@ public partial class PaintCanvasView : UserControl
 
     /// <summary>Raised when the user asks to clear the document.</summary>
     public event EventHandler? ClearRequested;
+
+    /// <summary>Raised when the user asks to clear the layer they are working on.</summary>
+    public event EventHandler? ClearLayerRequested;
 
     public PaintCanvasView()
     {
@@ -235,11 +271,17 @@ public partial class PaintCanvasView : UserControl
 
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        // Touching the canvas takes the keyboard with it. Without this the caret stays wherever it
+        // was last put -- the layer name box, most likely -- and every shortcut goes on being
+        // treated as typing, so they quietly stop working after a rename.
+        ViewportHost.Focus();
+
         var props = e.GetCurrentPoint(ViewportHost).Properties;
 
-        // Middle drag pans. The pen's buttons are left alone: this surface is for drawing with,
-        // and a pen that panned when it was meant to draw would be worse than no panning at all.
-        if (!props.IsMiddleButtonPressed) return;
+        // Middle drag pans, and so does any drag while the pan key is held. The pen's own buttons
+        // are still left alone: this surface is for drawing with, and a pen that panned when it
+        // was meant to draw would be worse than no panning at all.
+        if (!props.IsMiddleButtonPressed && !_panModifierHeld) return;
 
         _panning = true;
         _panFrom = e.GetPosition(ViewportHost);
@@ -295,6 +337,9 @@ public partial class PaintCanvasView : UserControl
 
     private void Clear_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         => ClearRequested?.Invoke(this, EventArgs.Empty);
+
+    private void ClearLayer_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => ClearLayerRequested?.Invoke(this, EventArgs.Empty);
 
     private void UpdateLabels()
     {
