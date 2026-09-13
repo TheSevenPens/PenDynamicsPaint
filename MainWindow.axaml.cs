@@ -79,6 +79,13 @@ public partial class MainWindow : Window
                     : PressureControl.Size,
             };
 
+        CompositingCombo.ItemsSource = new[] { "Wash", "Direct" };
+        CompositingCombo.SelectedIndex = 0;
+        CompositingCombo.SelectionChanged += (_, _) =>
+            _paint.Compositing = CompositingCombo.SelectedIndex == 1
+                ? StrokeCompositing.Direct
+                : StrokeCompositing.Wash;
+
         _renderTimer.Tick += RenderTimer_Tick;
 
         Opened += (_, _) =>

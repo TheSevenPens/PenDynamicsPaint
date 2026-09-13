@@ -35,6 +35,14 @@
                     <ComboBox x:Name="DrivesCombo" Width="110" Height="32" VerticalAlignment="Center" />
                 </StackPanel>
 
+                <!-- Only visible with pressure driving opacity. Opaque marks composite to the same
+                     colour however many overlap, so with Size the two modes are the same. -->
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Stroke" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource Pdl.Hint}" />
+                    <ComboBox x:Name="CompositingCombo" Width="110" Height="32" VerticalAlignment="Center" />
+                </StackPanel>
+
                 <Border Background="{DynamicResource Pdl.ActiveFill}" CornerRadius="4" Padding="8,3"
                         VerticalAlignment="Center">
                     <TextBlock x:Name="StatusLabel" FontSize="12" VerticalAlignment="Center"
