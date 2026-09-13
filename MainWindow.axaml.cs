@@ -120,6 +120,17 @@ public partial class MainWindow : Window
         LayerList.SelectionChanged += (_, _) =>
         {
             if (_syncingLayers || LayerList.SelectedIndex < 0) return;
+
+            // The last row is the paper, which is not a layer and cannot be the active one. Put the
+            // selection back where it was rather than letting it sit on something undrawable.
+            if (LayerList.SelectedIndex >= _layerRows.Count)
+            {
+                _syncingLayers = true;
+                LayerList.SelectedIndex = ToRow(_paint.ActiveLayerIndex);
+                _syncingLayers = false;
+                return;
+            }
+
             _paint.SetActiveLayer(ToStackIndex(LayerList.SelectedIndex));
             ShowSelectedLayer();
         };
@@ -132,13 +143,6 @@ public partial class MainWindow : Window
 
             _paint.SetLayerOpacity(_paint.ActiveLayerIndex, LayerOpacitySlider.Value / 100.0);
             PaintView.Invalidate();
-        };
-
-        LayerNameBox.PropertyChanged += (_, e) =>
-        {
-            if (e.Property.Name != "Text" || _syncingLayers) return;
-            if (!_paint.RenameLayer(_paint.ActiveLayerIndex, LayerNameBox.Text ?? "")) return;
-            RefreshLayerRow(_paint.ActiveLayerIndex);
         };
 
         RebuildLayerList();
@@ -181,7 +185,7 @@ public partial class MainWindow : Window
     private readonly List<LayerRow> _layerRows = [];
 
     /// <summary>One row of the panel: a visibility box and the layer's name.</summary>
-    private sealed record LayerRow(Control Root, CheckBox Visible, TextBlock Name);
+    private sealed record LayerRow(Control Root, CheckBox Visible, TextBlock Name, TextBox Editor);
 
     /// <summary>Panel row to stack index. The panel shows the stack upside down.</summary>
     private int ToStackIndex(int row) => _paint.Layers.Count - 1 - row;
@@ -311,21 +315,234 @@ public partial class MainWindow : Window
                 FontSize = 12,
             };
 
+            // Sits in the same place as the label and takes over from it. Renaming used to be a
+            // text box further down the panel, which meant the name being edited and the name in
+            // the list were two controls showing the same thing in different places.
+            var editor = new TextBox
+            {
+                Text = layer.Name,
+                FontSize = 12,
+                Padding = new Thickness(2, 0),
+                MinHeight = 0,
+                Height = 20,
+                IsVisible = false,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
             var root = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 6,
-                Children = { visible, name },
+                Children = { visible, name, editor },
             };
 
-            _layerRows.Add(new LayerRow(root, visible, name));
+            var row = new LayerRow(root, visible, name, editor);
+
+            root.DoubleTapped += (_, e) =>
+            {
+                e.Handled = true;
+                BeginRename(index);
+            };
+
+            editor.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter) CommitRename(index, keep: true);
+                else if (e.Key == Key.Escape) CommitRename(index, keep: false);
+                else return;
+
+                e.Handled = true;
+            };
+
+            // Clicking elsewhere is a way of saying the editing is finished, and the least
+            // surprising reading of it is to keep what was typed rather than throw it away.
+            editor.LostFocus += (_, _) =>
+            {
+                if (editor.IsVisible) CommitRename(index, keep: true);
+            };
+
+            root.ContextMenu = LayerMenu(index);
+
+            _layerRows.Add(row);
         }
 
-        LayerList.ItemsSource = _layerRows.Select(r => r.Root).ToList();
+        // The paper, under everything, where the bottom of the stack is. It is not a layer and
+        // has no row in _layerRows: nothing selects it, nothing draws on it, and the commands that
+        // act on a layer would all have to refuse. It is here because this is where someone looks
+        // for the colour behind their painting.
+        var rows = _layerRows.Select(r => r.Root).ToList();
+        rows.Add(PaperRow());
+
+        LayerList.ItemsSource = rows;
         LayerList.SelectedIndex = ToRow(_paint.ActiveLayerIndex);
         _syncingLayers = false;
 
         ShowSelectedLayer();
+    }
+
+    /// <summary>The row standing for the paper, at the bottom of the stack.</summary>
+    /// <remarks>
+    /// Deliberately not a <c>Layer</c>. A layer holds pixels that can be drawn on, undone, merged
+    /// and reordered; the paper is one colour filling the document, and making it a real layer
+    /// would mean a full-size bitmap of a single colour and four commands that have to refuse to
+    /// work on it.
+    /// </remarks>
+    private Control PaperRow()
+    {
+        var swatch = new Border
+        {
+            Width = 14,
+            Height = 14,
+            CornerRadius = new CornerRadius(2),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0x00, 0x00, 0x00)),
+            Background = new SolidColorBrush(
+                Color.FromArgb(255, _paint.Paper.Red, _paint.Paper.Green, _paint.Paper.Blue)),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        // No explicit colour. The layer rows above take the list's own foreground and this has to
+        // match them; naming one here means picking a colour for a surface whose colour is the
+        // theme's business, and getting it wrong makes the row invisible rather than merely wrong.
+        var label = new TextBlock
+        {
+            Text = "Paper",
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.75,
+        };
+
+        var root = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children = { swatch, label },
+        };
+
+        var menu = new ContextMenu();
+
+        foreach (var (name, colour) in Papers)
+        {
+            var item = new MenuItem { Header = name };
+            item.Click += (_, _) => ChoosePaper(colour);
+            menu.Items.Add(item);
+        }
+
+        root.ContextMenu = menu;
+        root.DoubleTapped += (_, e) => { e.Handled = true; menu.Open(root); };
+
+        ToolTip.SetTip(root, "The colour behind every layer. Right-click to change it.");
+
+        return root;
+    }
+
+    /// <summary>The papers on offer.</summary>
+    /// <remarks>
+    /// Shades rather than colours, because this is the ground a painting sits on rather than
+    /// something drawn with. The same argument as the ink palette: a picker is its own piece of
+    /// work, and having more than one is the thing that matters first.
+    /// </remarks>
+    private static readonly (string Name, SKColor Colour)[] Papers =
+    [
+        ("White",      new SKColor(0xFF, 0xFF, 0xFF)),
+        ("Off white",  new SKColor(0xF7, 0xF3, 0xEA)),
+        ("Cream",      new SKColor(0xF2, 0xE8, 0xCF)),
+        ("Grey",       new SKColor(0xC8, 0xC8, 0xC8)),
+        ("Slate",      new SKColor(0x3A, 0x3F, 0x4A)),
+        ("Black",      new SKColor(0x12, 0x12, 0x12)),
+    ];
+
+    private void ChoosePaper(SKColor colour)
+    {
+        _paint.Paper = colour;
+
+        RebuildLayerList();
+        PaintView.Invalidate();
+
+        StatusLabel.Text = $"Paper: {Papers.First(p => p.Colour == colour).Name}";
+    }
+
+    /// <summary>What can be done to one particular layer.</summary>
+    /// <remarks>
+    /// Built per row and closed over that row's index, so every item acts on the layer it was
+    /// opened from rather than on whichever one happens to be selected. That is the difference
+    /// between a context menu and a toolbar, and it is the whole reason these moved.
+    /// </remarks>
+    private ContextMenu LayerMenu(int stackIndex)
+    {
+        var menu = new ContextMenu();
+
+        MenuItem Item(string header, Action act, bool enabled = true)
+        {
+            var item = new MenuItem { Header = header, IsEnabled = enabled };
+            item.Click += (_, _) => act();
+            return item;
+        }
+
+        // Right-clicking a layer selects it first. Otherwise the menu acts on the row it was
+        // opened from while the panel below goes on showing a different one.
+        menu.Opened += (_, _) =>
+        {
+            _paint.SetActiveLayer(stackIndex);
+            LayerList.SelectedIndex = ToRow(stackIndex);
+            ShowSelectedLayer();
+        };
+
+        menu.Items.Add(Item("Rename", () => BeginRename(stackIndex)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Delete", () => { _paint.RemoveLayer(stackIndex); AfterLayerChange(); },
+                            _paint.Layers.Count > 1));
+        menu.Items.Add(Item("Merge down", () => { _paint.MergeDown(stackIndex); AfterLayerChange(); },
+                            stackIndex > 0));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Raise", () => { _paint.MoveLayer(stackIndex, stackIndex + 1); AfterLayerChange(); },
+                            stackIndex < _paint.Layers.Count - 1));
+        menu.Items.Add(Item("Lower", () => { _paint.MoveLayer(stackIndex, stackIndex - 1); AfterLayerChange(); },
+                            stackIndex > 0));
+
+        return menu;
+    }
+
+    private void AfterLayerChange()
+    {
+        RebuildLayerList();
+        PaintView.Invalidate();
+    }
+
+    /// <summary>Turn a layer's name in the list into something that can be typed in.</summary>
+    private void BeginRename(int stackIndex)
+    {
+        int row = ToRow(stackIndex);
+        if (row < 0 || row >= _layerRows.Count) return;
+
+        var entry = _layerRows[row];
+
+        entry.Editor.Text = _paint.Layers[stackIndex].Name;
+        entry.Name.IsVisible = false;
+        entry.Editor.IsVisible = true;
+
+        entry.Editor.Focus();
+        entry.Editor.SelectAll();
+    }
+
+    /// <summary>Finish renaming, keeping what was typed or dropping it.</summary>
+    private void CommitRename(int stackIndex, bool keep)
+    {
+        int row = ToRow(stackIndex);
+        if (row < 0 || row >= _layerRows.Count) return;
+
+        var entry = _layerRows[row];
+
+        entry.Editor.IsVisible = false;
+        entry.Name.IsVisible = true;
+
+        if (!keep) return;
+
+        // A layer with no name at all is a row with nothing in it, so an empty box is treated as
+        // having changed nothing rather than as a name.
+        string typed = entry.Editor.Text ?? "";
+        if (typed.Trim().Length == 0) return;
+
+        if (_paint.RenameLayer(stackIndex, typed)) entry.Name.Text = typed;
     }
 
     /// <summary>Put one row's name back in step, without rebuilding and losing the selection.</summary>
@@ -341,15 +558,10 @@ public partial class MainWindow : Window
         _syncingLayers = true;
 
         var layer = _paint.ActiveLayer;
-        LayerNameBox.Text = layer.Name;
         LayerOpacitySlider.Value = layer.Opacity * 100;
         LayerOpacityLabel.Text = $"{layer.Opacity * 100:F0}%";
 
-        // Disabled rather than absent, so the panel does not change shape as the selection moves.
-        DeleteLayerButton.IsEnabled = _paint.Layers.Count > 1;
-        MergeLayerButton.IsEnabled = _paint.ActiveLayerIndex > 0;
-        RaiseLayerButton.IsEnabled = _paint.ActiveLayerIndex < _paint.Layers.Count - 1;
-        LowerLayerButton.IsEnabled = _paint.ActiveLayerIndex > 0;
+
 
         _syncingLayers = false;
     }

@@ -37,7 +37,9 @@ public sealed class PaintSession : IDisposable
     /// painted on is a different thing from the ground the picture sits on, and making the paper
     /// one of the layers is how a stack ends up with a transparent hole nobody asked for.
     /// </remarks>
-    private static readonly SKColor Paper = new(0xFF, 0xFF, 0xFF);
+    private static readonly SKColor DefaultPaper = new(0xFF, 0xFF, 0xFF);
+
+    private SKColor _paper = DefaultPaper;
 
     /// <summary>Antialiasing puts ink just outside the geometry, so the stale region is grown.</summary>
     /// <remarks>
@@ -112,6 +114,34 @@ public sealed class PaintSession : IDisposable
     /// recompositing the hundred or so pixels the pen moved through since the last one is nothing.
     /// </remarks>
     private SKRectI _stale;
+
+    /// <summary>
+    /// The colour behind every layer: the paper the document is drawn on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Not a layer, though the layer panel shows it as the bottom one. A layer holds pixels that
+    /// can be drawn on, undone, merged and reordered, and none of that applies here -- this is one
+    /// colour filling the document, and making it a real layer would mean a full-size bitmap of a
+    /// single colour and four commands that have to refuse to work on it.
+    /// </para>
+    /// <para>
+    /// It is not saved into the layer stack either, for the same reason: a reader of the file would
+    /// see an opaque bottom layer rather than a paper colour. What <c>mergedimage.png</c> shows
+    /// includes it, because that is what the document looks like.
+    /// </para>
+    /// </remarks>
+    public SKColor Paper
+    {
+        get => _paper;
+        set
+        {
+            if (_paper == value) return;
+
+            _paper = value;
+            InvalidateComposite();
+        }
+    }
 
     /// <summary>Document width in document units, which are its pixels at 100%.</summary>
     public int Width { get; }
@@ -590,7 +620,7 @@ public sealed class PaintSession : IDisposable
 
         _canvas.Save();
         _canvas.ClipRect(SKRect.Create(_stale.Left, _stale.Top, _stale.Width, _stale.Height));
-        _canvas.Clear(Paper);
+        _canvas.Clear(_paper);
 
         foreach (var layer in _layers)
         {
