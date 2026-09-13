@@ -42,6 +42,22 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
+        <!-- Fluent's slider thumb is sized for a touchscreen: a 20px disc on a 2px track, which on
+             a panel of one-line rows reads as a row of buttons rather than a row of sliders, and
+             hides the part of the track it is meant to point at. -->
+        <Style Selector="Slider:horizontal /template/ Thumb">
+            <Setter Property="Width" Value="11" />
+            <Setter Property="Height" Value="11" />
+            <Setter Property="MinWidth" Value="11" />
+            <Setter Property="MinHeight" Value="11" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+
+        <Style Selector="Slider:horizontal /template/ Thumb:pointerover">
+            <Setter Property="Width" Value="13" />
+            <Setter Property="Height" Value="13" />
+        </Style>
+
         <!-- Sections that are read less often than they are set. Collapsed, but with their values
              on the header, so folding one away does not mean losing sight of what it holds. -->
         <Style Selector="Expander.section">
@@ -62,56 +78,70 @@
     </Window.Styles>
 
     <DockPanel>
-        <!-- Only what is neither a brush nor a layer. Everything about the mark, smoothing
-             included, belongs to a brush; a bar is the wrong shape for something you switch
-             between rather than set once. -->
+        <!-- The commands, where an application keeps them. What was here before was a row of
+             buttons and two combo boxes, which does not scale: every new command was another
+             button competing for the same strip, and the pen backend sat permanently in view
+             although it is chosen once and then left alone. That one now lives in Tools > Options.
+
+             Everything about the mark belongs to a brush and is on the left; everything about
+             where it goes belongs to a layer and is on the right. This holds what is neither. -->
+        <Menu DockPanel.Dock="Top" Background="{DynamicResource Pdl.Surface}">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New" InputGesture="Ctrl+N" Click="New_Click" />
+                <Separator />
+                <MenuItem Header="_Open..." InputGesture="Ctrl+O" Click="Open_Click" />
+                <MenuItem Header="_Save" InputGesture="Ctrl+S" Click="Save_Click" />
+                <MenuItem Header="Save _As..." Click="SaveAs_Click" />
+                <Separator />
+                <MenuItem Header="_Export image..." InputGesture="Ctrl+E" Click="Export_Click" />
+                <Separator />
+                <MenuItem Header="E_xit" Click="Exit_Click" />
+            </MenuItem>
+
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" InputGesture="Ctrl+Z" Click="Undo_Click" />
+                <Separator />
+                <MenuItem Header="Clear _layer" InputGesture="Delete" Click="ClearLayer_Click" />
+                <MenuItem Header="Clear _document" Click="ClearDocument_Click" />
+            </MenuItem>
+
+            <MenuItem Header="_Layer">
+                <MenuItem Header="_Add" Click="AddLayer_Click" />
+                <MenuItem Header="_Delete" Click="DeleteLayer_Click" />
+                <Separator />
+                <MenuItem Header="_Merge down" Click="MergeLayer_Click" />
+                <Separator />
+                <MenuItem Header="Raise" Click="RaiseLayer_Click" />
+                <MenuItem Header="Lower" Click="LowerLayer_Click" />
+            </MenuItem>
+
+            <MenuItem Header="_Tools">
+                <MenuItem Header="_Options..." Click="Options_Click" />
+            </MenuItem>
+        </Menu>
+
+        <!-- The ink, and only the ink. A fixed set rather than a picker: the point is to have more
+             than one colour at all, and until recently there was exactly one, which made a smudge
+             brush impossible to tell apart from an ordinary one, since it could only ever pick up
+             and lay down the same dark navy everything else was drawn in.
+
+             On a strip of its own because it is reached for constantly, which is the one thing a
+             toolbar is good for. -->
         <Border DockPanel.Dock="Top" Background="{DynamicResource Pdl.Surface}"
                 BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,0,0,1"
-                Padding="16,0">
-            <StackPanel Orientation="Horizontal" Spacing="24" Height="48" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="Pen" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.Hint}" />
-                    <ComboBox x:Name="ApiCombo" Width="160" Height="30" VerticalAlignment="Center" />
-                </StackPanel>
+                Padding="12,0">
+            <StackPanel Orientation="Horizontal" Spacing="4" Height="34" VerticalAlignment="Center"
+                        x:Name="SwatchRow" />
+        </Border>
 
-                <!-- A document setting, not a brush one: it decides how a stroke reaches the
-                     layer, which is the same question whichever brush drew it. -->
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="Stroke" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{DynamicResource Pdl.Hint}" />
-                    <ComboBox x:Name="CompositingCombo" Width="110" Height="30" VerticalAlignment="Center" />
-                </StackPanel>
-
-<!-- The ink. A fixed set rather than a picker: the point is to have more than one
-                     colour at all, and until this there was exactly one, which made a smudge
-                     brush impossible to tell apart from an ordinary one, since it could only ever
-                     pick up and lay down the same dark navy everything else was drawn in. -->
-                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
-                            x:Name="SwatchRow" />
-
-                <!-- The document's own commands, kept apart from the two settings beside them: these act
-                     on what has been drawn rather than on how the next mark is made. Open and Save
-                     are the layered format; Export flattens to a PNG for anything that wants a
-                     picture rather than a document. -->
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Button x:Name="OpenButton" Content="Open" Height="30" Padding="10,0"
-                            FontSize="12" VerticalAlignment="Center" Click="Open_Click"
-                            ToolTip.Tip="Open an OpenRaster document  (Ctrl+O)" />
-                    <Button x:Name="SaveButton" Content="Save" Height="30" Padding="10,0"
-                            FontSize="12" VerticalAlignment="Center" Click="Save_Click"
-                            ToolTip.Tip="Save as OpenRaster, keeping the layers  (Ctrl+S)" />
-                    <Button x:Name="ExportButton" Content="Export" Height="30" Padding="10,0"
-                            FontSize="12" VerticalAlignment="Center" Click="Export_Click"
-                            ToolTip.Tip="Export the flattened image as a PNG  (Ctrl+E)" />
-                </StackPanel>
-
-                <Border Background="{DynamicResource Pdl.ActiveFill}" CornerRadius="4" Padding="8,3"
-                        VerticalAlignment="Center">
-                    <TextBlock x:Name="StatusLabel" FontSize="12" VerticalAlignment="Center"
-                               Foreground="{DynamicResource Pdl.SubtleText}" />
-                </Border>
-            </StackPanel>
+        <!-- Along the bottom, where a status line goes. It was a pill floating in the toolbar,
+             which put transient messages about a saved file next to the controls rather than out
+             of the way of them. -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Pdl.Surface}"
+                BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,1,0,0"
+                Padding="12,0">
+            <TextBlock x:Name="StatusLabel" FontSize="11" Height="24" VerticalAlignment="Center"
+                       Foreground="{DynamicResource Pdl.SubtleText}" />
         </Border>
 
         <!-- Brushes on the left, layers on the right: one panel for what the mark is made of, one
@@ -140,6 +170,20 @@
                         <Grid ColumnDefinitions="58,*">
                             <TextBlock Grid.Column="0" Classes="name" Text="Path" />
                             <ComboBox Grid.Column="1" x:Name="InterpolationCombo" Height="24"
+                                      FontSize="11" Padding="6,0" VerticalAlignment="Center"
+                                      HorizontalAlignment="Stretch" />
+                        </Grid>
+                    </Border>
+
+                    <!-- On the brush now rather than on the document. It sat on the document
+                         because it decides how a stroke reaches the layer rather than what the mark
+                         looks like, which is the same question whichever brush drew it. In use it
+                         is not: a marker wants its overlaps flattened and a dry-media brush wants
+                         them to build up. -->
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Stroke" />
+                            <ComboBox Grid.Column="1" x:Name="CompositingCombo" Height="24"
                                       FontSize="11" Padding="6,0" VerticalAlignment="Center"
                                       HorizontalAlignment="Stretch" />
                         </Grid>

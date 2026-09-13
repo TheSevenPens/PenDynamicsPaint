@@ -43,7 +43,7 @@ public class MyPaintColorTests
     private static SKColor Drawn(MyPaintBrush brush, SKColor ink, int atX = 300,
                                  Func<int, PenOrientation>? orientation = null)
     {
-        using var session = new PaintSession(700, 240) { Compositing = StrokeCompositing.Direct };
+        using var session = new PaintSession(700, 240);
         session.SetStrokeColor(ink);
 
         var settings = new BrushSettings
@@ -52,6 +52,7 @@ public class MyPaintColorTests
             Engine = BrushEngineKind.MyPaint,
             MyPaint = brush,
             Interpolation = StrokeInterpolation.Straight,
+            Compositing = StrokeCompositing.Direct,
         };
 
         for (int i = 0; i < 110; i++)

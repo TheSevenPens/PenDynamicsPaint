@@ -44,6 +44,13 @@ public partial class MainWindow : Window
 
     private IPenSession? _penSession;
     private IReadOnlyList<InputApi> _apis = [];
+
+    /// <summary>The backend in use, chosen in Tools &gt; Options.</summary>
+    /// <remarks>
+    /// A field rather than the selection of a combo box, because there is no combo box on the
+    /// window any more: this is which driver the tablet is read through and it is set once.
+    /// </remarks>
+    private InputApi? _api;
     private PaintSession _paint = null!;
     private bool _fitted;
 
@@ -136,12 +143,7 @@ public partial class MainWindow : Window
 
         RebuildLayerList();
 
-        CompositingCombo.ItemsSource = new[] { "Wash", "Direct" };
-        CompositingCombo.SelectedIndex = 0;
-        CompositingCombo.SelectionChanged += (_, _) =>
-            _paint.Compositing = CompositingCombo.SelectedIndex == 1
-                ? StrokeCompositing.Direct
-                : StrokeCompositing.Wash;
+
 
         // Tunnelling, not bubbling. A ComboBox swallows Space to open itself and a ListBox
         // swallows Delete, so by the time a bubbling handler saw either, the shortcut would
@@ -513,7 +515,6 @@ public partial class MainWindow : Window
         var old = _paint;
 
         _paint = session;
-        _paint.Compositing = old.Compositing;
 
         // The ink belongs to the application rather than to the file, so it is re-applied to the
         // session that replaced the old one -- which would otherwise start on its own default.
@@ -588,6 +589,56 @@ public partial class MainWindow : Window
         {
             StatusLabel.Text = $"{file.Name}: {error.Message}";
         }
+    }
+
+    // -- Menu -----------------------------------------------------
+
+    private void New_Click(object? sender, RoutedEventArgs e)
+    {
+        // A fresh document the same size as this one. Asking what size wants a dialog with a
+        // width, a height and a set of presets, which is its own piece of work.
+        AdoptDocument(new PaintSession(_paint.Width, _paint.Height), from: null);
+        StatusLabel.Text = "New document";
+    }
+
+    private async void SaveAs_Click(object? sender, RoutedEventArgs e)
+    {
+        // Forget where it came from, so Save asks again and then follows the answer.
+        _documentFile = null;
+        await SaveDocument();
+    }
+
+    private void Exit_Click(object? sender, RoutedEventArgs e) => Close();
+
+    private void Undo_Click(object? sender, RoutedEventArgs e)
+    {
+        _paint.Undo();
+        PaintView.Invalidate();
+    }
+
+    private void ClearLayer_Click(object? sender, RoutedEventArgs e)
+    {
+        _paint.ClearActiveLayer();
+        PaintView.Invalidate();
+    }
+
+    private void ClearDocument_Click(object? sender, RoutedEventArgs e)
+    {
+        _paint.Clear();
+        PaintView.Invalidate();
+    }
+
+    private async void Options_Click(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new OptionsWindow(_apis, _api);
+        await dialog.ShowDialog(this);
+
+        // Nothing to do if it was cancelled, or if the answer is what is already running:
+        // restarting a pen session drops whatever is in flight for no reason.
+        if (dialog.Chosen is not { } chosen || chosen == _api) return;
+
+        _api = chosen;
+        StartSession();
     }
 
     // -- Keyboard -------------------------------------------------
@@ -677,6 +728,14 @@ public partial class MainWindow : Window
             ShowBrush();
         };
 
+        CompositingCombo.ItemsSource = new[] { "Wash", "Direct" };
+        CompositingCombo.SelectionChanged += (_, _) => EditBrush(b => b with
+        {
+            Compositing = CompositingCombo.SelectedIndex == 1
+                ? StrokeCompositing.Direct
+                : StrokeCompositing.Wash,
+        });
+
         EngineCombo.ItemsSource = new[] { "Taper", "Dabs", "MyPaint" };
         EngineCombo.SelectionChanged += (_, _) => EditBrush(b => b with
         {
@@ -765,6 +824,7 @@ public partial class MainWindow : Window
         BrushCombo.SelectedIndex = _brushIndex;
         EngineCombo.SelectedIndex = (int)b.Engine;
         InterpolationCombo.SelectedIndex = b.Interpolation == StrokeInterpolation.Curved ? 1 : 0;
+        CompositingCombo.SelectedIndex = b.Compositing == StrokeCompositing.Direct ? 1 : 0;
         DrivesCombo.SelectedIndex = (int)b.PressureDrives;
 
         SizeSlider.Value = b.Size;
@@ -860,26 +920,25 @@ public partial class MainWindow : Window
     private void PopulateApis()
     {
         _apis = AvaloniaPenApis.GetAvailable();
-        ApiCombo.ItemsSource = _apis.Select(a => a.Label()).ToList();
 
         // Wintab's digitizer context where it exists: it is the finest of the available clocks
         // and the one a tablet actually reports through. Measured in WinPenKit -- one timestamp
         // per point at 1 ms, where the framework paths vary by four orders of magnitude.
-        int preferred = _apis.ToList().FindIndex(a => a == InputApi.WintabDigitizer);
-        ApiCombo.SelectedIndex = preferred >= 0 ? preferred : (_apis.Count > 0 ? 0 : -1);
-        ApiCombo.SelectionChanged += (_, _) => StartSession();
+        _api = _apis.FirstOrDefault(a => a == InputApi.WintabDigitizer,
+                                    _apis.Count > 0 ? _apis[0] : default);
+
+        if (_apis.Count == 0) _api = null;
     }
 
     private void StartSession()
     {
-        if (_apis.Count == 0 || ApiCombo.SelectedIndex < 0) return;
+        if (_api is not { } api) return;
 
         _renderTimer.Stop();
         _penSession?.Stop();
         _penSession?.Dispose();
         _paint.EndStroke();
 
-        var api = _apis[ApiCombo.SelectedIndex];
         _penSession = api == InputApi.AvaloniaPointer
             ? new AvaloniaPointerSession(PaintView.Host)
             : PenSessionFactory.Create(api);

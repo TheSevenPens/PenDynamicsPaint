@@ -28,8 +28,14 @@ public class LayerCompositingTests
     private static readonly SKColor Red = new(0xFF, 0x00, 0x00);
     private static readonly SKColor Blue = new(0x00, 0x00, 0xFF);
 
-    private static BrushSettings Opaque(double size = 20) =>
-        BrushSettings.Default with { Size = size, PressureDrives = PressureControl.Size };
+    private static BrushSettings Opaque(double size = 20,
+                                       StrokeCompositing compositing = StrokeCompositing.Wash) =>
+        BrushSettings.Default with
+        {
+            Size = size,
+            PressureDrives = PressureControl.Size,
+            Compositing = compositing,
+        };
 
     /// <summary>A straight opaque stroke, drawn and finished.</summary>
     private static void Stroke(PaintSession s, SKColor color, double x0, double y0,
@@ -231,7 +237,7 @@ public class LayerCompositingTests
         // two together. Composite the stroke over the whole stack instead and it shows at full
         // strength until the pen lifts, then drops to half -- a stroke that changes when you stop
         // drawing it.
-        using var session = new PaintSession(240, 200) { Compositing = StrokeCompositing.Wash };
+        using var session = new PaintSession(240, 200);
         Assert.True(session.SetLayerOpacity(0, 0.5));
 
         session.SetStrokeColor(Red);
@@ -260,7 +266,7 @@ public class LayerCompositingTests
         // Why the merge marks nothing stale: the composite has been drawing the stroke layer
         // directly above its own layer with source-over, and source-over is associative, so the
         // picture after the merge is the picture that was already there.
-        using var session = new PaintSession(240, 200) { Compositing = StrokeCompositing.Wash };
+        using var session = new PaintSession(240, 200);
 
         session.SetStrokeColor(Red);
         var brush = Opaque(40);
@@ -283,7 +289,7 @@ public class LayerCompositingTests
     {
         // The other half of the same decision. A stroke drawn on the bottom layer must go under
         // the one above while it is still being drawn, not over everything.
-        using var session = new PaintSession(240, 200) { Compositing = StrokeCompositing.Wash };
+        using var session = new PaintSession(240, 200);
 
         // Blue covers the left half only, so the same in-progress stroke can be read in both
         // states -- hidden under the blue, and visible past the end of it. Without the second

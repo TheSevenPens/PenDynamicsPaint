@@ -244,12 +244,10 @@ public class TiltSmoothingTests
                 MyPaint = brush,
                 Interpolation = StrokeInterpolation.Straight,
                 Smoothing = new StrokeSmoothing { Tilt = tiltReach, TailAggressiveness = 0 },
-            };
-
-            using var session = new PaintSession(900, 400)
-            {
                 Compositing = StrokeCompositing.Direct,
             };
+
+            using var session = new PaintSession(900, 400);
 
             // A steady hand at a steady lean, with the wrist rocking: the pen alternates between
             // 42 and 58 degrees of altitude, which is a tablet quantising a held position.

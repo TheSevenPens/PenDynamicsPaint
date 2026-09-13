@@ -65,13 +65,16 @@ public class SmudgeTests
             }
             """, "plain");
 
-    private static BrushSettings Using(MyPaintBrush brush) => new()
-    {
-        Name = "b",
-        Engine = BrushEngineKind.MyPaint,
-        MyPaint = brush,
-        Interpolation = StrokeInterpolation.Straight,
-    };
+    private static BrushSettings Using(MyPaintBrush brush,
+                                       StrokeCompositing compositing = StrokeCompositing.Wash) =>
+        new()
+        {
+            Name = "b",
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = brush,
+            Interpolation = StrokeInterpolation.Straight,
+            Compositing = compositing,
+        };
 
     /// <summary>A tall bar of paint at <see cref="BarX"/>, for a smudge to drag off.</summary>
     private static void PaintTheBar(PaintSession session, SKColor colour, double x = BarX)
@@ -89,12 +92,15 @@ public class SmudgeTests
     /// White, so that anything on the canvas afterwards that is <b>not</b> white came off the bar
     /// rather than out of the brush. Painting in the bar's own colour would prove nothing.
     /// </remarks>
-    private static void DragAcross(PaintSession session, MyPaintBrush brush, double y = 160)
+    private static void DragAcross(PaintSession session, MyPaintBrush brush, double y = 160,
+                                   StrokeCompositing compositing = StrokeCompositing.Wash)
     {
         session.SetStrokeColor(SKColors.White);
 
+        var settings = Using(brush, compositing);
+
         for (int i = 0; i < 120; i++)
-            session.AddSample(60 + i * 6, y, 0.9, Using(brush), default, (long)(i * 10_000));
+            session.AddSample(60 + i * 6, y, 0.9, settings, default, (long)(i * 10_000));
 
         session.EndStroke();
     }
@@ -371,10 +377,10 @@ public class SmudgeTests
         // a smudging stroke skips the stroke layer entirely.
         int Carried(StrokeCompositing compositing)
         {
-            using var session = new PaintSession(900, 320) { Compositing = compositing };
+            using var session = new PaintSession(900, 320);
 
             PaintTheBar(session, Red);
-            DragAcross(session, Smudging(smudge: 1.0, length: 0.8));
+            DragAcross(session, Smudging(smudge: 1.0, length: 0.8), compositing: compositing);
 
             return Redness(session, 170, 160);
         }

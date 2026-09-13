@@ -149,20 +149,44 @@ public class WindowTests
     }
 
     [Fact]
-    public void The_compositing_choice_reaches_the_document()
+    public void The_compositing_choice_reaches_the_brush()
     {
-        // A document setting rather than a brush one, and the only control on the window that
-        // changes how a stroke reaches the layer rather than what the mark looks like.
+        // A brush setting now rather than a document one. It sat on the document because it
+        // decides how a stroke reaches the layer rather than what the mark looks like, which is
+        // the same question whichever brush drew it -- but in use a marker wants its overlaps
+        // flattened and a dry-media brush wants them to build up.
         OnTheUiThread.Run(() =>
         {
             var window = new MainWindow();
             var combo = window.GetControl<ComboBox>("CompositingCombo");
 
             combo.SelectedIndex = 1;
-            Assert.Equal(StrokeCompositing.Direct, window.Session.Compositing);
+            Assert.Equal(StrokeCompositing.Direct, window.CurrentBrush.Compositing);
 
             combo.SelectedIndex = 0;
-            Assert.Equal(StrokeCompositing.Wash, window.Session.Compositing);
+            Assert.Equal(StrokeCompositing.Wash, window.CurrentBrush.Compositing);
+        });
+    }
+
+    [Fact]
+    public void The_compositing_box_follows_the_brush_that_is_chosen()
+    {
+        // The other direction, and the half that breaks when a setting moves onto the brush: the
+        // control has to be re-read every time the brush changes, or it goes on showing whatever
+        // the last brush wanted and the next stroke quietly disagrees with the panel.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var brushes = window.GetControl<ComboBox>("BrushCombo");
+            var combo = window.GetControl<ComboBox>("CompositingCombo");
+
+            for (int i = 0; i < BrushLibrary.Defaults.Count; i++)
+            {
+                brushes.SelectedIndex = i;
+
+                var expected = BrushLibrary.Defaults[i].Compositing == StrokeCompositing.Direct ? 1 : 0;
+                Assert.Equal(expected, combo.SelectedIndex);
+            }
         });
     }
 

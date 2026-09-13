@@ -113,13 +113,6 @@ public sealed class PaintSession : IDisposable
     /// </remarks>
     private SKRectI _stale;
 
-    /// <summary>How the marks within a stroke combine with each other.</summary>
-    /// <remarks>
-    /// Takes effect at the start of the next stroke rather than mid-stroke, since a stroke already
-    /// half composited one way cannot finish the other.
-    /// </remarks>
-    public StrokeCompositing Compositing { get; set; } = StrokeCompositing.Wash;
-
     /// <summary>Document width in document units, which are its pixels at 100%.</summary>
     public int Width { get; }
 
@@ -496,7 +489,7 @@ public sealed class PaintSession : IDisposable
     /// <summary>Start a fresh stroke layer, if this stroke is being washed.</summary>
     private void BeginLayerIfWashing(IBrushEngine engine, BrushSettings brush)
     {
-        if (Compositing != StrokeCompositing.Wash) return;
+        if (brush.Compositing != StrokeCompositing.Wash) return;
 
         // A stroke that reads the canvas has to paint onto the canvas it is reading. Wash draws
         // into a layer of its own, where the only thing a smudge would find is the marks it has

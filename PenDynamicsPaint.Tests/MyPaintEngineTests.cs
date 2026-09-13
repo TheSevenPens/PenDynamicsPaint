@@ -40,12 +40,23 @@ public class MyPaintEngineTests
             }
             """, input);
 
-    private static BrushSettings Using(MyPaintBrush brush) => new()
-    {
-        Name = "mypaint",
-        Engine = BrushEngineKind.MyPaint,
-        MyPaint = brush,
-    };
+    /// <summary>
+    /// A brush settings around a MyPaint brush, composited as asked.
+    /// </summary>
+    /// <remarks>
+    /// Direct by default because most of these measure one stroke's own marks against each other,
+    /// and Wash flattens exactly that: it takes the greater alpha of overlapping marks, so a test
+    /// of how dabs accumulate would be measuring the compositing instead.
+    /// </remarks>
+    private static BrushSettings Using(MyPaintBrush brush,
+                                       StrokeCompositing compositing = StrokeCompositing.Direct) =>
+        new()
+        {
+            Name = "mypaint",
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = brush,
+            Compositing = compositing,
+        };
 
     /// <summary>Draw a straight stroke, with control over what the pen reports along it.</summary>
     private static PaintSession Stroke(MyPaintBrush brush, int samples = 60, double step = 6,
@@ -53,7 +64,7 @@ public class MyPaintEngineTests
                                        Func<int, PenOrientation>? orientation = null,
                                        double pressure = 0.6)
     {
-        var session = new PaintSession(700, 300) { Compositing = StrokeCompositing.Direct };
+        var session = new PaintSession(700, 300);
         var settings = Using(brush);
 
         for (int i = 0; i < samples; i++)
@@ -262,7 +273,7 @@ public class MyPaintEngineTests
             }
             """, "profile");
 
-        using var session = new PaintSession(700, 300) { Compositing = StrokeCompositing.Direct };
+        using var session = new PaintSession(700, 300);
         var settings = Using(brush);
 
         for (int i = 0; i < 30; i++) session.AddSample(60 + i * 12, 150, 0.8, settings);
@@ -363,8 +374,8 @@ public class MyPaintEngineTests
     private static List<int> AlongTheMiddle(MyPaintBrush brush, StrokeCompositing compositing,
                                             double step = 6, int samples = 90)
     {
-        using var session = new PaintSession(700, 300) { Compositing = compositing };
-        var settings = Using(brush);
+        using var session = new PaintSession(700, 300);
+        var settings = Using(brush, compositing);
 
         // Constant pressure and an even step, so anything that varies along the stroke is a fault
         // of the engine rather than of the input.
@@ -436,10 +447,7 @@ public class MyPaintEngineTests
         // one contributed, and it could not tell half strength from a quarter.
         int Darkest(double hardness)
         {
-            using var session = new PaintSession(700, 300)
-            {
-                Compositing = StrokeCompositing.Direct,
-            };
+            using var session = new PaintSession(700, 300);
             var settings = Using(SoftDabs(hardness, perRadius: 0.3, opaque: 0.4));
 
             for (int i = 0; i < 40; i++) session.AddSample(40 + i * 10, 150, 0.7, settings);
@@ -480,7 +488,7 @@ public class MyPaintEngineTests
     /// <summary>The ink in the middle of a straight stroke, as 0 (black) to 255 (white).</summary>
     private static int InkAtTheMiddle(MyPaintBrush brush)
     {
-        using var session = new PaintSession(700, 300) { Compositing = StrokeCompositing.Wash };
+        using var session = new PaintSession(700, 300);
         var settings = Using(brush);
         for (int i = 0; i < 90; i++) session.AddSample(40 + i * 6, 150, 0.7, settings);
         session.EndStroke();
@@ -555,7 +563,7 @@ public class MyPaintEngineTests
     /// <summary>A stroke that steps from light to heavy pressure half way along.</summary>
     private static PaintSession PressureStep(MyPaintBrush brush)
     {
-        var session = new PaintSession(900, 300) { Compositing = StrokeCompositing.Direct };
+        var session = new PaintSession(900, 300);
         var settings = Using(brush);
 
         for (int i = 0; i < 140; i++)
@@ -640,7 +648,7 @@ public class MyPaintEngineTests
             }
             """, "order");
 
-        using var session = new PaintSession(900, 300) { Compositing = StrokeCompositing.Direct };
+        using var session = new PaintSession(900, 300);
         var settings = Using(brush);
 
         const int StepX = 340;
@@ -679,7 +687,7 @@ public class MyPaintEngineTests
     /// <summary>How thick a straight horizontal stroke comes out, measured across it.</summary>
     private static int ThicknessOfAHorizontalStroke(MyPaintBrush brush)
     {
-        using var session = new PaintSession(600, 400) { Compositing = StrokeCompositing.Direct };
+        using var session = new PaintSession(600, 400);
         var settings = Using(brush);
 
         for (int i = 0; i < 60; i++) session.AddSample(80 + i * 7, 200, 0.8, settings);
@@ -728,7 +736,7 @@ public class MyPaintEngineTests
         // test above. Running the stroke diagonally is what separates them.
         int Ink(int dy)
         {
-            using var session = new PaintSession(600, 600) { Compositing = StrokeCompositing.Direct };
+            using var session = new PaintSession(600, 600);
             var settings = Using(Nib(ratio: 4, angle: 45));
 
             for (int i = 0; i < 50; i++)
@@ -759,7 +767,7 @@ public class MyPaintEngineTests
         // densely as its narrow width needs, and dragged along its length it does not waste them.
         (int Marks, int Ink) Measure(bool vertical)
         {
-            using var session = new PaintSession(500, 500) { Compositing = StrokeCompositing.Direct };
+            using var session = new PaintSession(500, 500);
 
             // A third of a dab per radius, so the gap is three radii and the dabs land clear of one
             // another along the nib -- there is something to count rather than one smear.
