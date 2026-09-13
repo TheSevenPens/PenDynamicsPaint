@@ -17,11 +17,10 @@ namespace PenDynamicsPaint.Drawing;
 /// </para>
 /// <para>
 /// <b>What is honoured, and what is not.</b> Radius, both opacities, the pile-up correction,
-/// hardness, spacing, elliptical dabs, the HSV colour shifts and the two random offsets reach the
-/// mark. Smudge, the HSL colour pair, tracking and the eraser do not: smudge needs a read of the
-/// canvas, and the rest belong to parts of the pipeline that have their own answers here already.
-/// A brush file that leans on any of them still loads, and says so through
-/// <see cref="MyPaintBrush.Ignored"/>.
+/// hardness, spacing, elliptical dabs, the HSV colour shifts, smudge and the two random offsets
+/// reach the mark. The HSL colour pair, tracking and the eraser do not: they belong to parts of the
+/// pipeline that have their own answers here already. A brush file that leans on any of them still
+/// loads, and says so through <see cref="MyPaintBrush.Ignored"/>.
 /// </para>
 /// </remarks>
 public sealed class MyPaintBrushEngine : IBrushEngine
@@ -33,6 +32,12 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// enough that the banding is finer than a pixel at the sizes a dab is drawn at.
     /// </remarks>
     private const int FalloffStops = 16;
+
+    /// <summary>How many samples across a smudge pickup, at most.</summary>
+    private const int SampleGrid = 24;
+
+    /// <summary>libmypaint's own clamps on a dab radius, from mypaint-brush.c.</summary>
+    private const double MinRadius = 0.2, MaxRadius = 1000;
 
     private readonly DabSpacing _spacing = new();
     private readonly BrushInputTracker _inputs;
@@ -50,6 +55,13 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     private DocumentPoint _previous;
     private bool _started;
 
+    // The colour being carried, the last reading taken, and how recently that reading was taken.
+    // Part of the stroke rather than of the brush, so BeginStroke clears them: carrying a colour
+    // into the next stroke would start it painting with whatever the last one ended on.
+    private double _smudgeR, _smudgeG, _smudgeB, _smudgeA;
+    private double _pickedR, _pickedG, _pickedB, _pickedA;
+    private double _smudgeRecentness;
+
     /// <summary>Time since the last dab that no segment has accounted for yet.</summary>
     /// <remarks>
     /// A segment often places no dab at all -- that is what carrying the spacing accumulator
@@ -66,6 +78,20 @@ public sealed class MyPaintBrushEngine : IBrushEngine
 
     /// <inheritdoc />
     public SKBlender? Blender { get; set; }
+
+    /// <inheritdoc />
+    public SKBitmap? SampleSource { get; set; }
+
+    /// <inheritdoc />
+    public bool SamplesTheCanvas(BrushSettings brush)
+    {
+        var mypaint = brush.MyPaint ?? MyPaintBrush.Default;
+        var smudge = mypaint[MyPaintSetting.Smudge];
+
+        // A curve counts as well as a base value: a brush that smudges only at high pressure sits
+        // at zero until the pen presses, and deciding where the stroke goes cannot wait for that.
+        return smudge.BaseValue != 0 || !smudge.IsConstant;
+    }
 
     /// <summary>
     /// False: MyPaint's dabs accumulate, and alpha-darkening them combs every stroke.
@@ -87,6 +113,10 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         _inputs.Reset();
         _started = false;
         _carried = 0;
+
+        _smudgeR = _smudgeG = _smudgeB = _smudgeA = 0;
+        _pickedR = _pickedG = _pickedB = _pickedA = 0;
+        _smudgeRecentness = 0;
     }
 
     /// <inheritdoc />
@@ -251,6 +281,8 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         float alpha = Alpha(brush, inputs);
         if (alpha <= 0) return;
 
+        if (!Smudged(ref color, at, radius, brush, inputs)) return;
+
         color = Tinted(color, brush, inputs);
 
         float hardness = Math.Clamp(brush[MyPaintSetting.Hardness].ValueFor(inputs), 0f, 1f);
@@ -291,6 +323,169 @@ public sealed class MyPaintBrushEngine : IBrushEngine
 
         _paint.Shader = null;
         if (elliptical) canvas.Restore();
+    }
+
+    /// <summary>
+    /// Carry colour picked up from the canvas into this dab, and say whether to draw it at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Ported from <c>update_smudge_color</c> and <c>apply_smudge</c> in <c>mypaint-brush.c</c> at
+    /// <c>v1.6.1</c>, taking the <b>legacy</b> path of each. The other path mixes colours through
+    /// libmypaint's spectral pigment model, which is a far larger piece of work and a different
+    /// question from whether paint moves at all.
+    /// </para>
+    /// <para>
+    /// <b>Two colours are kept, not one.</b> What is read off the canvas is blended into a running
+    /// colour, and it is that running colour the dab is painted with. That is what makes a smudge a
+    /// smear with a length rather than a copy of the pixel underneath: the paint stays on the brush
+    /// for a while and is put down further along.
+    /// </para>
+    /// <para>
+    /// Returns false when the dab should not be drawn, which is <c>smudge_transparency</c>
+    /// refusing to pick anything up off bare canvas.
+    /// </para>
+    /// </remarks>
+    private bool Smudged(ref SKColor color, DocumentPoint at, double radius,
+                         MyPaintBrush brush, in BrushInputs inputs)
+    {
+        var setting = brush[MyPaintSetting.Smudge];
+        if (setting.BaseValue == 0 && setting.IsConstant) return true;
+
+        double smudge = setting.ValueFor(inputs);
+        double length = brush[MyPaintSetting.SmudgeLength].ValueFor(inputs);
+
+        // At a length of 1 the carried colour is replaced wholesale every dab, so there is nothing
+        // for a reading to blend into and libmypaint does not take one.
+        if (length < 1.0 && SampleSource is { } canvas)
+        {
+            if (!PickUp(canvas, at, radius, length, brush, inputs)) return false;
+        }
+
+        if (smudge <= 0) return true;
+
+        double factor = Math.Min(1.0, smudge);
+
+        // Where the carried colour is transparent the dab is meant to erase towards that
+        // transparency. Nothing here erases, so the dab is thinned instead: it lays less ink rather
+        // than taking ink away. A smudge dragged off the edge of a painting therefore fades out
+        // where libmypaint would rub out, and that is the one place this parts company with it.
+        double targetAlpha = Math.Clamp((1 - factor) + factor * _smudgeA, 0, 1);
+        if (targetAlpha <= 0) return false;
+
+        double Mix(double carried, double ink) =>
+            (factor * carried * 255 + (1 - factor) * ink) / targetAlpha;
+
+        color = new SKColor(
+            (byte)Math.Clamp(Mix(_smudgeR, color.Red), 0, 255),
+            (byte)Math.Clamp(Mix(_smudgeG, color.Green), 0, 255),
+            (byte)Math.Clamp(Mix(_smudgeB, color.Blue), 0, 255),
+            (byte)Math.Clamp(color.Alpha * targetAlpha, 0, 255));
+
+        return true;
+    }
+
+    /// <summary>Read the canvas under the dab and blend it into the colour being carried.</summary>
+    /// <remarks>
+    /// The resampling is rationed the way libmypaint rations it. Reading costs about as much as
+    /// drawing a dab, so a brush may say through <c>smudge_length_log</c> that it will tolerate a
+    /// stale reading. At the default of 0 the arithmetic comes out to resampling every dab, which
+    /// is the ordinary case rather than an exception to it.
+    /// </remarks>
+    private bool PickUp(SKBitmap canvas, DocumentPoint at, double radius, double length,
+                        MyPaintBrush brush, in BrushInputs inputs)
+    {
+        double update = Math.Max(0.01, length);
+        double lengthLog = brush[MyPaintSetting.SmudgeLengthLog].ValueFor(inputs);
+
+        _smudgeRecentness *= update;
+
+        if (_smudgeRecentness < Math.Min(1.0, Math.Pow(0.5 * update, lengthLog) + 1e-16))
+        {
+            // Nothing has been picked up yet, so there is no carried colour for the first reading
+            // to blend into and it becomes that colour outright.
+            if (_smudgeRecentness == 0) update = 0;
+
+            _smudgeRecentness = 1.0;
+
+            double sampleRadius = Math.Clamp(
+                radius * Math.Exp(brush[MyPaintSetting.SmudgeRadiusLog].ValueFor(inputs)),
+                MinRadius, MaxRadius);
+
+            var (r, g, b, a) = Average(canvas, at, sampleRadius);
+
+            double limit = brush[MyPaintSetting.SmudgeTransparency].ValueFor(inputs);
+            if ((limit > 0 && a < limit) || (limit < 0 && a > -limit)) return false;
+
+            _pickedR = r;
+            _pickedG = g;
+            _pickedB = b;
+            _pickedA = a;
+        }
+
+        double old = update;
+        double fresh = (1 - update) * _pickedA;
+
+        _smudgeR = old * _smudgeR + fresh * _pickedR;
+        _smudgeG = old * _smudgeG + fresh * _pickedG;
+        _smudgeB = old * _smudgeB + fresh * _pickedB;
+        _smudgeA = Math.Clamp(old * _smudgeA + fresh, 0, 1);
+
+        return true;
+    }
+
+    /// <summary>The mean colour of the canvas over a disc, as straight values in 0 to 1.</summary>
+    /// <remarks>
+    /// <para>
+    /// Averaged over a grid rather than every pixel. A smudge radius can be hundreds of units
+    /// across and this runs per dab, so the number of readings is capped and the step widened to
+    /// suit. The mean of a coarse sample of a disc is the mean of the disc to well inside a colour
+    /// step.
+    /// </para>
+    /// <para>
+    /// <b>Colour is averaged weighted by alpha, and alpha averaged on its own.</b> Otherwise a dab
+    /// at the edge of a mark is dragged towards whatever the transparent pixels happen to store,
+    /// which is a colour that was never visible.
+    /// </para>
+    /// </remarks>
+    private static (double R, double G, double B, double A) Average(
+        SKBitmap canvas, DocumentPoint at, double radius)
+    {
+        int step = Math.Max(1, (int)Math.Ceiling(radius * 2 / SampleGrid));
+
+        double r = 0, g = 0, b = 0, a = 0, weight = 0;
+        int count = 0;
+
+        int left = (int)Math.Floor(at.X - radius), right = (int)Math.Ceiling(at.X + radius);
+        int top = (int)Math.Floor(at.Y - radius), bottom = (int)Math.Ceiling(at.Y + radius);
+
+        for (int y = top; y <= bottom; y += step)
+        {
+            if (y < 0 || y >= canvas.Height) continue;
+
+            for (int x = left; x <= right; x += step)
+            {
+                if (x < 0 || x >= canvas.Width) continue;
+
+                double dx = x - at.X, dy = y - at.Y;
+                if (dx * dx + dy * dy > radius * radius) continue;
+
+                var pixel = canvas.GetPixel(x, y);
+                double alpha = pixel.Alpha / 255.0;
+
+                r += pixel.Red / 255.0 * alpha;
+                g += pixel.Green / 255.0 * alpha;
+                b += pixel.Blue / 255.0 * alpha;
+
+                a += alpha;
+                weight += alpha;
+                count++;
+            }
+        }
+
+        if (count == 0 || weight <= 0) return (0, 0, 0, 0);
+
+        return (r / weight, g / weight, b / weight, a / count);
     }
 
     /// <summary>

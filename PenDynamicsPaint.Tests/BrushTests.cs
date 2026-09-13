@@ -557,12 +557,31 @@ public class BrushTests
         // The library is a starting set, not decoration: a preset that drew nothing -- a curve
         // whose range excluded the pressure being applied, say -- would be discovered by whoever
         // picked it rather than here.
+        //
+        // Drawn over an existing mark rather than onto blank paper, because a smudging brush lays
+        // no ink of its own and correctly does nothing on an empty canvas. Giving every brush
+        // something to work with keeps this one invariant over the whole library instead of
+        // needing an exception for the brush whose whole job is to move paint that is already
+        // there -- and it is the harder test, since a brush now has to mark a surface that is
+        // already marked.
         foreach (var brush in BrushLibrary.Defaults)
         {
             using var session = new PaintSession(240, 200);
+
+            session.SetStrokeColor(new SKColor(0xC0, 0x40, 0x40));
+            Stroke(session, Taper with { Size = 60 }, 100, pressure: 0.9);
+
+            using var before = session.Bitmap.Copy();
+
+            session.SetStrokeColor(new SKColor(0x20, 0x20, 0x90));
             Stroke(session, brush, 100, pressure: 0.7);
 
-            Assert.True(InkRuns(session, 100) > 0, $"{brush.Name} drew nothing");
+            int changed = 0;
+            for (int y = 0; y < session.Height; y++)
+                for (int x = 0; x < session.Width; x++)
+                    if (before.GetPixel(x, y) != session.Bitmap.GetPixel(x, y)) changed++;
+
+            Assert.True(changed > 0, $"{brush.Name} changed nothing");
         }
     }
 }

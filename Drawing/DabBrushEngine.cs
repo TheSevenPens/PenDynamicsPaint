@@ -51,6 +51,9 @@ public sealed class DabBrushEngine : IBrushEngine
     /// <remarks>Accumulated from the dabs placed, since spacing decides how many there are.</remarks>
     public SKRect LastSegmentBounds { get; private set; }
 
+    /// <summary>Never read: this engine's colour is the ink it was given.</summary>
+    public SKBitmap? SampleSource { get; set; }
+
     /// <inheritdoc />
     public void BeginStroke() => _spacing.Reset();
 

@@ -386,7 +386,12 @@ public sealed class PaintSession : IDisposable
             _smoother.Reset();
             _fitter.Reset();
             History.BeginStroke(brush, _strokeColor, ActiveLayer.Id);
-            BeginLayerIfWashing(_strokeEngine);
+            BeginLayerIfWashing(_strokeEngine, brush);
+
+            // What a smudging stroke reads. Always the layer, and never a stroke layer, because a
+            // stroke that samples is the one case BeginLayerIfWashing refuses to give one to.
+            _strokeEngine.SampleSource = ActiveLayer.Bitmap;
+
             _strokeEngine.BeginStroke();
         }
 
@@ -479,9 +484,15 @@ public sealed class PaintSession : IDisposable
     }
 
     /// <summary>Start a fresh stroke layer, if this stroke is being washed.</summary>
-    private void BeginLayerIfWashing(IBrushEngine engine)
+    private void BeginLayerIfWashing(IBrushEngine engine, BrushSettings brush)
     {
         if (Compositing != StrokeCompositing.Wash) return;
+
+        // A stroke that reads the canvas has to paint onto the canvas it is reading. Wash draws
+        // into a layer of its own, where the only thing a smudge would find is the marks it has
+        // just made -- so it would drag its own colour along and never touch the painting it is
+        // supposed to be moving. libmypaint has no such intermediate for the same reason.
+        if (brush.Engine != BrushEngineKind.Taper && engine.SamplesTheCanvas(brush)) return;
 
         // An engine whose marks are meant to build up says so, and then Wash means only that the
         // stroke reaches the layer in one go -- which is still worth having, because it is what
@@ -708,7 +719,7 @@ public sealed class PaintSession : IDisposable
 
         foreach (var stroke in History.Strokes)
             if (stroke.LayerId == layerId)
-                Replay(stroke, layer.Canvas);
+                Replay(stroke, layer.Canvas, layer.Bitmap);
     }
 
     /// <summary>
@@ -719,19 +730,29 @@ public sealed class PaintSession : IDisposable
     /// accumulate, so an undo would change the appearance of every stroke that survived it --
     /// which is the kind of fault that looks like a rendering bug and is really a bookkeeping one.
     /// </remarks>
-    private void Replay(Stroke stroke, SKCanvas destination)
+    /// <param name="reading">
+    /// The pixels behind <paramref name="destination"/>, for a stroke that smudges. Null where
+    /// there are none to offer, in which case such a stroke picks nothing up -- which is right for
+    /// a baseline bake, where the pixels being written are not a layer anyone is looking at.
+    /// </param>
+    private void Replay(Stroke stroke, SKCanvas destination, SKBitmap? reading = null)
     {
         // The stroke's own brush, so its engine, size, spacing and curve are the ones it was drawn
         // with. Replaying through whatever is selected now is how an undo used to redraw older
         // strokes in a brush they were never made with.
         var engine = EngineFor(stroke.Brush);
 
-        BeginLayerIfWashing(engine);
+        BeginLayerIfWashing(engine, stroke.Brush);
         engine.BeginStroke();
         _smoother.Reset();
         _fitter.Reset();
 
         var target = _layerActive ? _strokeLayer!.Canvas : destination;
+
+        // What a smudging stroke reads while it redraws. The layer has been reset to its baseline
+        // and the earlier strokes replayed onto it, so a replayed smudge finds the same paint it
+        // found the first time and lands in the same place.
+        engine.SampleSource = reading;
 
         // Filtered and fitted again from the raw samples, through this stroke's own brush. Both
         // stages are deterministic, so the ink lands exactly where it did the first time; running

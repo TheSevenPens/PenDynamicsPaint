@@ -179,7 +179,7 @@ which is a curve in the radius and so is sampled into a gradient rather than han
 stops.
 
 **What reaches the mark:** radius, opacity, hardness, spacing, the pile-up correction, elliptical
-dabs, the HSV colour shifts, and the two random offsets. **What does not:** smudge, the HSL colour
+dabs, the HSV colour shifts, smudge, and the two random offsets. **What does not:** the HSL colour
 pair, tracking, and the eraser.
 
 The colour shifts are worked out per dab and driven by inputs like any other setting, so a brush can
@@ -251,6 +251,34 @@ and repaints only the layer that stroke belonged to. It steps through **strokes,
 adding, deleting, reordering or merging a layer is not undoable, and a merge down is destructive,
 since the merged pixels cannot be reproduced by replaying the two histories in the order they were
 drawn.
+
+### Smudging
+
+The one thing in the engine that **reads** the canvas rather than only writing to it. A smudging
+dab takes its colour from what is already there: at `smudge` 1 it lays no ink of its own at all and
+only moves paint around.
+
+Two colours are kept, not one. What is read off the canvas is blended into a running colour, and it
+is that running colour the dab is painted with -- which is what makes a smudge a smear with a length
+rather than a copy of the pixel underneath. `smudge_length` sets how long the brush holds on to what
+it picked up.
+
+**A stroke that reads the canvas paints straight onto the layer**, skipping the stroke layer Wash
+otherwise gives it. In that layer the only thing to find would be the marks it had just made, so it
+would drag its own colour along and never touch the painting. libmypaint has no such intermediate
+for the same reason.
+
+That has a consequence worth knowing, because it makes the `smudge` setting behave in a way that
+looks broken: **a smudge reads its own trail.** Below 1, every dab dilutes the carried colour with
+ink and then reads that diluted trail back, so the dilution compounds and the colour is gone within
+a few dab widths; at exactly 1 there is no ink in the mix and it sustains itself indefinitely. The
+setting is therefore nothing like linear. That is libmypaint's arithmetic rather than a choice here.
+
+Ported from the **legacy** path of `update_smudge_color` and `apply_smudge`. The other path mixes
+through libmypaint's spectral pigment model, which is a much larger piece of work and a different
+question from whether paint moves at all. One deviation: where the picked-up colour is transparent,
+libmypaint erases towards that transparency, and nothing here erases -- the dab is thinned instead,
+so a smudge dragged off the edge of a painting fades out where MyPaint would rub out.
 
 ### Filtering tilt
 

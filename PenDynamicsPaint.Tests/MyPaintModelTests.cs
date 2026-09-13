@@ -139,7 +139,7 @@ public class MyPaintModelTests
             "opaque_multiply":    { "base_value": 0.0,
                                     "inputs": { "pressure": [[0.0, 0.0], [1.0, 1.0]] } },
             "hardness":           { "base_value": 0.42, "inputs": {} },
-            "smudge":             { "base_value": 0.6, "inputs": {} },
+            "lock_alpha":         { "base_value": 0.6, "inputs": {} },
             "anti_aliasing":      { "base_value": 1.0, "inputs": {} },
             "offset_by_random":   { "base_value": 0.0,
                                     "inputs": { "gridmap_x": [[0.0, 0.0], [1.0, 1.0]] } }
@@ -180,11 +180,11 @@ public class MyPaintModelTests
     [Fact]
     public void What_the_brush_asked_for_and_did_not_get_is_recorded()
     {
-        // A brush is not rejected for wanting smudge, but the shortfall has to be visible or the
-        // application is quietly drawing something other than what the file describes.
+        // A brush is not rejected for wanting something unimplemented, but the shortfall has to be
+        // visible or the application is quietly drawing something other than what the file says.
         var brush = MyPaintBrush.Parse(Brush, "test");
 
-        Assert.Contains("smudge", brush.Ignored);
+        Assert.Contains("lock_alpha", brush.Ignored);
         Assert.Contains("offset_by_random by gridmap_x", brush.Ignored);
 
         // And a setting sitting at its own default is not worth reporting, however far from zero
