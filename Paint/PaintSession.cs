@@ -478,6 +478,17 @@ public sealed class PaintSession : IDisposable
     {
         if (Compositing != StrokeCompositing.Wash) return;
 
+        // An engine whose marks are meant to build up says so, and then Wash means only that the
+        // stroke reaches the layer in one go -- which is still worth having, because it is what
+        // keeps a stroke from compositing with itself across an undo.
+        if (!engine.AlphaDarkenWithinStroke)
+        {
+            _strokeLayer ??= new Layer(0, "stroke", Width, Height);
+            _strokeLayer.Canvas.Clear(SKColors.Transparent);
+            _layerActive = true;
+            return;
+        }
+
         // No blender means this build of Skia would not compile it. Falling back to direct
         // painting keeps the application drawing, with the artifact Wash exists to remove.
         if (AlphaDarken.Blender is not { } blender) return;

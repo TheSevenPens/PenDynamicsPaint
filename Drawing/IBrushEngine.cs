@@ -39,6 +39,25 @@ public interface IBrushEngine : IDisposable
     /// </remarks>
     SKBlender? Blender { get; set; }
 
+    /// <summary>
+    /// Whether overlapping marks within one stroke should take the greater alpha rather than
+    /// accumulating.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// True for the engines here, and it is what Wash is for: a swept taper puts about a hundred
+    /// overlapping marks over each pixel at tablet rates, so letting them accumulate turns 15%
+    /// pressure into 99% ink.
+    /// </para>
+    /// <para>
+    /// <b>False for an engine whose marks are meant to build up.</b> MyPaint's dabs are: its
+    /// opacity settings are tuned against accumulation, its dabs are deliberately spaced apart,
+    /// and taking the greater alpha of two soft overlapping dabs scallops the edge between them --
+    /// a comb pattern along every stroke at exactly the dab spacing.
+    /// </para>
+    /// </remarks>
+    bool AlphaDarkenWithinStroke => true;
+
     /// <summary>A stroke is starting. Clear anything carried between segments.</summary>
     /// <remarks>
     /// <para>

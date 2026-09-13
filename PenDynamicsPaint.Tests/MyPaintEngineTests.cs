@@ -332,6 +332,127 @@ public class MyPaintEngineTests
         Assert.True(Runs(0.35) > 3, $"loose dabs should bead, they gave {Runs(0.35)} run(s)");
     }
 
+    /// <summary>A soft brush laying dabs a couple of radii apart, as a real one does.</summary>
+    /// <summary>A brush of soft, overlapping dabs -- the shape of a real MyPaint brush.</summary>
+    /// <param name="perRadius">
+    /// Dabs per radius of travel, so how thickly the dabs are laid over each other.
+    /// </param>
+    private static MyPaintBrush SoftDabs(double hardness, double perRadius, double opaque) =>
+        MyPaintBrush.Parse($$"""
+            {
+              "version": 3,
+              "settings": {
+                "radius_logarithmic": { "base_value": 2.1 },
+                "opaque": { "base_value": 1.0 },
+                "opaque_multiply": { "base_value": {{opaque}} },
+                "hardness": { "base_value": {{hardness}} },
+                "dabs_per_actual_radius": { "base_value": {{perRadius}} }
+              }
+            }
+            """, "soft");
+
+    /// <summary>The ink along the middle of a straight stroke, as 0 (black) to 255 (white).</summary>
+    private static List<int> AlongTheMiddle(MyPaintBrush brush, StrokeCompositing compositing,
+                                            double step = 6, int samples = 90)
+    {
+        using var session = new PaintSession(700, 300) { Compositing = compositing };
+        var settings = Using(brush);
+
+        // Constant pressure and an even step, so anything that varies along the stroke is a fault
+        // of the engine rather than of the input.
+        for (int i = 0; i < samples; i++) session.AddSample(40 + i * step, 150, 0.7, settings);
+        session.EndStroke();
+
+        var row = new List<int>();
+        for (int x = 200; x < 420; x++) row.Add(session.Bitmap.GetPixel(x, 150).Red);
+        return row;
+    }
+
+    [Fact]
+    public void A_washed_stroke_does_not_grow_a_comb_along_its_edge()
+    {
+        // Wash takes the greater alpha of two overlapping marks. That is right for a swept taper,
+        // where the hundred marks over each pixel are meant to be one stroke, and wrong for dabs
+        // meant to build up: the greater of two soft neighbours dips between their centres, so the
+        // stroke grows a ripple at exactly the dab spacing.
+        //
+        // Found by loading a real MyPaint brush and looking. Every test here passed while it was
+        // happening, because they all measure how wide or how dark a stroke is and none of them
+        // looked along one.
+        var brush = SoftDabs(hardness: 0.4, perRadius: 1.5, opaque: 0.9);
+
+        int washed = Ripple(AlongTheMiddle(brush, StrokeCompositing.Wash));
+        int direct = Ripple(AlongTheMiddle(brush, StrokeCompositing.Direct));
+
+        // Direct paints each dab straight onto the layer and is the reference: whatever ripple the
+        // dab spacing leaves there is the brush's own, and Wash should not add to it.
+        Assert.True(washed <= direct + 8,
+            $"the washed stroke ripples by {washed}/255 against {direct}/255 painted directly, " +
+            "which is the dab spacing showing through");
+
+        static int Ripple(List<int> row) => row.Max() - row.Min();
+    }
+
+    [Fact]
+    public void Laying_more_dabs_over_the_same_ground_lays_more_ink()
+    {
+        // Why the comb happens, stated as the thing that is actually wrong. Taking the greater
+        // alpha caps a stroke at one dab's worth of ink however many dabs cross it, so a brush
+        // that asks for dabs three times as thickly gets no more ink for them -- and the MyPaint
+        // brush files set their opacity against a model that accumulates, so they come out faint.
+        //
+        // This is the stronger half of the pair: it fails on the cause rather than on a threshold
+        // for how visible the symptom happens to be with one set of numbers.
+        int Ink(double perRadius) =>
+            AlongTheMiddle(SoftDabs(hardness: 0.4, perRadius: perRadius, opaque: 0.5),
+                           StrokeCompositing.Wash).Min();
+
+        int sparse = Ink(0.8);
+        int dense = Ink(2.5);
+
+        Assert.True(sparse - dense > 30,
+            $"three times the dabs should lay visibly more ink: {sparse}/255 against {dense}/255");
+    }
+
+    [Fact]
+    public void A_soft_dab_is_no_fainter_than_a_hard_one_of_the_same_strength()
+    {
+        // A soft dab carries its falloff in a shader and its strength in the paint's alpha, and
+        // Skia multiplies the two together. Building the strength into the shader as well squares
+        // it, so a dab asked for at 40% arrives at 16% -- which reads as a brush that is merely
+        // too faint, and is why this compares a soft dab against a hard one rather than against a
+        // number.
+        //
+        // The dabs have to be spaced apart for this to be measurable at all. The first version of
+        // this test drew them overlapping, where forty of them pile up to solid ink whatever each
+        // one contributed, and it could not tell half strength from a quarter.
+        int Darkest(double hardness)
+        {
+            using var session = new PaintSession(700, 300)
+            {
+                Compositing = StrokeCompositing.Direct,
+            };
+            var settings = Using(SoftDabs(hardness, perRadius: 0.3, opaque: 0.4));
+
+            for (int i = 0; i < 40; i++) session.AddSample(40 + i * 10, 150, 0.7, settings);
+            session.EndStroke();
+
+            int darkest = 255;
+            for (int x = 100; x < 400; x++)
+                darkest = Math.Min(darkest, session.Bitmap.GetPixel(x, 150).Red);
+            return darkest;
+        }
+
+        // Hardness 1 takes the no-shader path, where the strength can only be applied once, so it
+        // is the reference. A hair below takes the shader path, and at a dab's centre the falloff
+        // is 1 in both, so the ink should match.
+        int hard = Darkest(1.0);
+        int nearlyHard = Darkest(0.98);
+
+        Assert.True(Math.Abs(hard - nearlyHard) <= 5,
+            $"the soft dab came out at {nearlyHard}/255 against {hard}/255 for the hard one");
+    }
+
     [Fact]
     public void A_stroke_records_the_brush_so_an_undo_replays_it()
     {

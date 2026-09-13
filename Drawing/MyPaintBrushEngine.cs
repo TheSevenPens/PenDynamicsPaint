@@ -66,6 +66,16 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// <inheritdoc />
     public SKBlender? Blender { get; set; }
 
+    /// <summary>
+    /// False: MyPaint's dabs accumulate, and alpha-darkening them combs every stroke.
+    /// </summary>
+    /// <remarks>
+    /// The dabs are spaced a fraction of a radius apart and each is soft, so the greater alpha of
+    /// two neighbours dips between their centres. Accumulating fills that in, which is what the
+    /// brush files expect -- their opacity values are chosen against a model that builds up.
+    /// </remarks>
+    public bool AlphaDarkenWithinStroke => false;
+
     /// <summary>True when the pen gave no clock, so speed was computed against a nominal rate.</summary>
     public bool UsedNominalTime => _inputs.UsedNominalTime;
 
@@ -181,7 +191,11 @@ public sealed class MyPaintBrushEngine : IBrushEngine
 
         _paint.Blender = Blender;
         _paint.Color = color.WithAlpha((byte)Math.Clamp(alpha * 255, 0, 255));
-        _paint.Shader = hardness >= 1f ? null : Falloff(at, radius, _paint.Color, hardness);
+
+        // The shader carries the falloff at full strength and the paint's own alpha scales it.
+        // Building the dab's alpha into the stops as well would apply it twice, which squares it:
+        // a dab asked for at half strength would arrive at a quarter.
+        _paint.Shader = hardness >= 1f ? null : Falloff(at, radius, color, hardness);
 
         canvas.DrawCircle((float)at.X, (float)at.Y, (float)radius, _paint);
         _paint.Shader = null;
@@ -216,6 +230,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     /// plausible and is the wrong shape, which is worse than one that looks wrong.
     /// </para>
     /// </remarks>
+    /// <param name="color">The ink, at full alpha. The dab's own alpha is the paint's.</param>
     private SKShader Falloff(DocumentPoint at, double radius, SKColor color, float hardness)
     {
         hardness = Math.Max(hardness, 1e-4f);
@@ -234,8 +249,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
                 : segment2Offset + rr * segment2Slope;
 
             _stopPositions[i] = r;
-            _stopColors[i] = color.WithAlpha(
-                (byte)Math.Clamp(color.Alpha * Math.Clamp(opacity, 0f, 1f), 0, 255));
+            _stopColors[i] = color.WithAlpha((byte)Math.Clamp(opacity * 255, 0, 255));
         }
 
         return SKShader.CreateRadialGradient(
