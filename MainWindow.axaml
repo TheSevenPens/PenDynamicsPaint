@@ -6,18 +6,73 @@
         Width="1400" Height="900"
         Background="{DynamicResource Pdl.Pane}">
 
+    <Window.Styles>
+        <!-- The brush panel is a column of one-line rows: a label, a control, and a value. Setting
+             the shape once here is what lets it be compact: a label stacked above its slider costs
+             twice the height and says nothing the inline label does not. -->
+        <!-- No fixed height: the row is as tall as the slider inside it wants to be. Forcing it
+             shorter clips the thumb, because the Fluent template lays the track out against the
+             box rather than centring the thumb in it. -->
+        <Style Selector="Border.row">
+            <Setter Property="MinHeight" Value="24" />
+        </Style>
+
+        <Style Selector="Border.row > Grid > TextBlock.name">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource Pdl.Hint}" />
+        </Style>
+
+        <Style Selector="Border.row > Grid > TextBlock.value">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextAlignment" Value="Right" />
+            <Setter Property="Foreground" Value="{DynamicResource Pdl.SubtleText}" />
+        </Style>
+
+        <!-- A Fluent slider reserves room above and below its track for tick bars this panel
+             does not use, and the reservation is inside the template: lifting MinHeight does not
+             reach it, and setting an explicit Height clips the thumb into a dome because the
+             template lays the track out against the box rather than centring the thumb in it.
+             A negative margin takes the space back from outside. Nothing clips, because nothing
+             in the column clips. -->
+        <Style Selector="Border.row > Grid > Slider">
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Margin" Value="0,-7" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Sections that are read less often than they are set. Collapsed, but with their values
+             on the header, so folding one away does not mean losing sight of what it holds. -->
+        <Style Selector="Expander.section">
+            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="Padding" Value="0,2,0,0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+
+        <Style Selector="Expander.section /template/ ToggleButton#PART_toggle">
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="Padding" Value="4,0" />
+        </Style>
+
+        <Style Selector="Expander.section > StackPanel">
+            <Setter Property="Spacing" Value="3" />
+        </Style>
+
+    </Window.Styles>
+
     <DockPanel>
-        <!-- Only what is not a brush and not a layer. Size, spacing, the pressure target and the
-             curve used to live here; they belong to a brush, and a bar is the wrong shape for
-             something you switch between rather than set once. -->
+        <!-- Only what is neither a brush nor a layer. Everything about the mark, smoothing
+             included, belongs to a brush; a bar is the wrong shape for something you switch
+             between rather than set once. -->
         <Border DockPanel.Dock="Top" Background="{DynamicResource Pdl.Surface}"
                 BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,0,0,1"
                 Padding="16,0">
-            <StackPanel Orientation="Horizontal" Spacing="24" Height="56" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="24" Height="48" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <TextBlock Text="Pen" VerticalAlignment="Center" FontSize="12"
                                Foreground="{DynamicResource Pdl.Hint}" />
-                    <ComboBox x:Name="ApiCombo" Width="160" Height="32" VerticalAlignment="Center" />
+                    <ComboBox x:Name="ApiCombo" Width="160" Height="30" VerticalAlignment="Center" />
                 </StackPanel>
 
                 <!-- A document setting, not a brush one: it decides how a stroke reaches the
@@ -25,7 +80,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <TextBlock Text="Stroke" VerticalAlignment="Center" FontSize="12"
                                Foreground="{DynamicResource Pdl.Hint}" />
-                    <ComboBox x:Name="CompositingCombo" Width="110" Height="32" VerticalAlignment="Center" />
+                    <ComboBox x:Name="CompositingCombo" Width="110" Height="30" VerticalAlignment="Center" />
                 </StackPanel>
 
                 <Border Background="{DynamicResource Pdl.ActiveFill}" CornerRadius="4" Padding="8,3"
@@ -37,72 +92,75 @@
         </Border>
 
         <!-- Brushes on the left, layers on the right: one panel for what the mark is made of, one
-             for where it goes. Everything here edits the selected brush and nothing else, which is
-             the point of the whole change: these were application settings, so a brush you
-             switched to could not bring its own. -->
-        <Border DockPanel.Dock="Left" Width="256" Background="{DynamicResource Pdl.Surface}"
+             for where it goes. Everything here edits the selected brush and nothing else. -->
+        <Border DockPanel.Dock="Left" Width="244" Background="{DynamicResource Pdl.Surface}"
                 BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="0,0,1,0">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="12" Spacing="12">
-                    <TextBlock Text="Brush" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Pdl.GroupLabel}" />
+                <StackPanel Margin="10,8" Spacing="3">
 
-                    <ComboBox x:Name="BrushCombo" HorizontalAlignment="Stretch" Height="32" />
+                    <ComboBox x:Name="BrushCombo" HorizontalAlignment="Stretch" Height="30"
+                              Margin="0,0,0,4" />
 
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Engine" FontSize="11"
-                                   Foreground="{DynamicResource Pdl.Hint}" />
-                        <ComboBox x:Name="EngineCombo" HorizontalAlignment="Stretch" Height="32" />
-                    </StackPanel>
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Engine" />
+                            <ComboBox Grid.Column="1" x:Name="EngineCombo" Height="24"
+                                      FontSize="11" Padding="6,0" VerticalAlignment="Center"
+                                      HorizontalAlignment="Stretch" />
+                        </Grid>
+                    </Border>
 
-                    <StackPanel Spacing="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Size" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.Hint}" />
-                            <TextBlock x:Name="SizeLabel" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.SubtleText}" />
-                        </StackPanel>
-                        <Slider x:Name="SizeSlider" Minimum="1" Maximum="200" Value="40" />
-                    </StackPanel>
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Pressure" />
+                            <ComboBox Grid.Column="1" x:Name="DrivesCombo" Height="24"
+                                      FontSize="11" Padding="6,0" VerticalAlignment="Center"
+                                      HorizontalAlignment="Stretch" />
+                        </Grid>
+                    </Border>
 
-                    <!-- Only the dab engine has marks to space, so the control follows the engine
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Size" />
+                            <Slider Grid.Column="1" x:Name="SizeSlider" Minimum="1" Maximum="200" />
+                            <TextBlock Grid.Column="2" x:Name="SizeLabel" Classes="value" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Only the dab engine has marks to space, so the row follows the engine
                          rather than sitting inert. -->
-                    <StackPanel x:Name="SpacingPanel" Spacing="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Spacing" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.Hint}" />
-                            <TextBlock x:Name="SpacingLabel" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.SubtleText}" />
-                        </StackPanel>
-                        <Slider x:Name="SpacingSlider" Minimum="0.02" Maximum="2.0" Value="0.1" />
-                    </StackPanel>
+                    <Border Classes="row" x:Name="SpacingRow">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Spacing" />
+                            <Slider Grid.Column="1" x:Name="SpacingSlider" Minimum="0.02" Maximum="2.0" />
+                            <TextBlock Grid.Column="2" x:Name="SpacingLabel" Classes="value" />
+                        </Grid>
+                    </Border>
 
-                    <StackPanel Spacing="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Opacity" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.Hint}" />
-                            <TextBlock x:Name="BrushOpacityLabel" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.SubtleText}" />
-                        </StackPanel>
-                        <Slider x:Name="BrushOpacitySlider" Minimum="0" Maximum="100" Value="100" />
-                    </StackPanel>
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Opacity" />
+                            <Slider Grid.Column="1" x:Name="BrushOpacitySlider" Minimum="0" Maximum="100" />
+                            <TextBlock Grid.Column="2" x:Name="BrushOpacityLabel" Classes="value" />
+                        </Grid>
+                    </Border>
 
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Pressure drives" FontSize="11"
-                                   Foreground="{DynamicResource Pdl.Hint}" />
-                        <ComboBox x:Name="DrivesCombo" HorizontalAlignment="Stretch" Height="32" />
-                    </StackPanel>
-
-                    <Rectangle Height="1" Fill="{DynamicResource Pdl.Divider}" Margin="0,4" />
-
-                    <TextBlock Text="Pressure curve" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Pdl.GroupLabel}" />
+                    <Expander Classes="section" x:Name="CurveSection">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="Pressure curve" FontSize="11"
+                                           Foreground="{DynamicResource Pdl.GroupLabel}" />
+                                <TextBlock x:Name="CurveSummary" FontSize="11"
+                                           Foreground="{DynamicResource Pdl.SubtleText}" />
+                            </StackPanel>
+                        </Expander.Header>
+                        <StackPanel>
 
                     <!-- Drawn rather than described. Three numbers say very little about how a
                          brush will feel, and the shape says it at a glance. -->
-                    <Border Height="120" Background="{DynamicResource Pdl.PlotField}"
+                    <Border Height="78" Background="{DynamicResource Pdl.PlotField}"
                             BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1"
-                            CornerRadius="3">
+                            CornerRadius="3" Margin="0,2">
                         <Canvas x:Name="CurvePlot" ClipToBounds="True">
                             <!-- Declared here rather than built in code so the theme resolves
                                  their colours. A brush looked up from code-behind has to name a
@@ -119,35 +177,74 @@
                         </Canvas>
                     </Border>
 
-                    <StackPanel Spacing="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Start" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.Hint}" />
-                            <TextBlock x:Name="CurveStartLabel" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.SubtleText}" />
-                        </StackPanel>
-                        <Slider x:Name="CurveStartSlider" Minimum="0" Maximum="1" Value="0" />
-                    </StackPanel>
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Start" />
+                            <Slider Grid.Column="1" x:Name="CurveStartSlider" Minimum="0" Maximum="1" />
+                            <TextBlock Grid.Column="2" x:Name="CurveStartLabel" Classes="value" />
+                        </Grid>
+                    </Border>
 
-                    <StackPanel Spacing="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="End" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.Hint}" />
-                            <TextBlock x:Name="CurveEndLabel" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.SubtleText}" />
-                        </StackPanel>
-                        <Slider x:Name="CurveEndSlider" Minimum="0" Maximum="1" Value="1" />
-                    </StackPanel>
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="End" />
+                            <Slider Grid.Column="1" x:Name="CurveEndSlider" Minimum="0" Maximum="1" />
+                            <TextBlock Grid.Column="2" x:Name="CurveEndLabel" Classes="value" />
+                        </Grid>
+                    </Border>
 
-                    <StackPanel Spacing="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Exponent" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.Hint}" />
-                            <TextBlock x:Name="CurveExponentLabel" FontSize="11"
-                                       Foreground="{DynamicResource Pdl.SubtleText}" />
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Curve" />
+                            <Slider Grid.Column="1" x:Name="CurveExponentSlider" Minimum="0.1" Maximum="4" />
+                            <TextBlock Grid.Column="2" x:Name="CurveExponentLabel" Classes="value" />
+                        </Grid>
+                    </Border>
+
                         </StackPanel>
-                        <Slider x:Name="CurveExponentSlider" Minimum="0.1" Maximum="4" Value="1" />
-                    </StackPanel>
+                    </Expander>
+
+                    <!-- Two reaches, not one with a switch. Position and pressure are different
+                         problems. A shaky hand wants its path steadied and its pressure left
+                         alone; a noisy sensor wants the opposite. -->
+                    <Expander Classes="section" x:Name="SmoothingSection">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="Smoothing" FontSize="11"
+                                           Foreground="{DynamicResource Pdl.GroupLabel}" />
+                                <TextBlock x:Name="SmoothingSummary" FontSize="11"
+                                           Foreground="{DynamicResource Pdl.SubtleText}" />
+                            </StackPanel>
+                        </Expander.Header>
+                        <StackPanel>
+
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Position" />
+                            <Slider Grid.Column="1" x:Name="PositionSmoothingSlider"
+                                    Minimum="0" Maximum="200" />
+                            <TextBlock Grid.Column="2" x:Name="PositionSmoothingLabel" Classes="value" />
+                        </Grid>
+                    </Border>
+
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Pressure" />
+                            <Slider Grid.Column="1" x:Name="PressureSmoothingSlider"
+                                    Minimum="0" Maximum="200" />
+                            <TextBlock Grid.Column="2" x:Name="PressureSmoothingLabel" Classes="value" />
+                        </Grid>
+                    </Border>
+
+                    <Border Classes="row" x:Name="TailRow">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Tail" />
+                            <Slider Grid.Column="1" x:Name="TailSlider" Minimum="0" Maximum="1" />
+                            <TextBlock Grid.Column="2" x:Name="TailLabel" Classes="value" />
+                        </Grid>
+                    </Border>
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
             </ScrollViewer>
         </Border>

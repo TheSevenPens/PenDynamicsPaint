@@ -260,6 +260,221 @@ public class BrushTests
     }
 
     [Fact]
+    public void A_stroke_records_the_smoothing_that_made_it()
+    {
+        // It rides along on the brush rather than being recorded separately, which is one of the
+        // things moving it onto the brush bought. The samples stored are what the pen reported, so
+        // redrawing means filtering them again, and doing that with today's setting would move ink
+        // already on the canvas.
+        using var session = new PaintSession(240, 200);
+
+        Stroke(session, Taper, 60);
+        Stroke(session, Taper with { Smoothing = new StrokeSmoothing { Position = 60 } }, 140);
+
+        Assert.False(session.History.Strokes[0].Brush.Smoothing.IsEnabled);
+        Assert.Equal(60, session.History.Strokes[1].Brush.Smoothing.Position);
+    }
+
+    [Fact]
+    public void Position_and_pressure_are_filtered_independently()
+    {
+        // Two reaches rather than one with a switch. Either can run without the other, so a shaky
+        // hand can have its path steadied with its pressure left alone.
+        var pathOnly = Taper with { Smoothing = new StrokeSmoothing { Position = 80 } };
+        var pressureOnly = Taper with { Smoothing = new StrokeSmoothing { Pressure = 80 } };
+
+        Assert.True(pathOnly.Smoothing.SmoothsPosition);
+        Assert.False(pathOnly.Smoothing.SmoothsPressure);
+        Assert.False(pressureOnly.Smoothing.SmoothsPosition);
+        Assert.True(pressureOnly.Smoothing.SmoothsPressure);
+
+        // And on the canvas: filtering only the pressure must leave the path where the pen put it.
+        var wobble = new List<(double X, double Y)>();
+        for (double x = 20; x <= 220; x += 2) wobble.Add((x, 100 + 6 * Math.Sin(x * 0.9)));
+
+        using var plain = new PaintSession(240, 200);
+        using var pressureFiltered = new PaintSession(240, 200);
+        using var pathFiltered = new PaintSession(240, 200);
+
+        foreach (var (session, brush) in new[]
+                 {
+                     (plain, Taper with { Size = 10 }),
+                     (pressureFiltered, pressureOnly with { Size = 10 }),
+                     (pathFiltered, pathOnly with { Size = 10 }),
+                 })
+        {
+            foreach (var (x, y) in wobble) session.AddSample(x, y, 1.0, brush);
+            session.EndStroke();
+        }
+
+        Assert.Equal(InkHeight(plain, 120), InkHeight(pressureFiltered, 120));
+        Assert.True(InkHeight(pathFiltered, 120) < InkHeight(plain, 120),
+            $"the path filter should flatten the wobble: {InkHeight(pathFiltered, 120)} px " +
+            $"against {InkHeight(plain, 120)} px");
+
+        // The other direction: a position-only brush must leave the pressure alone, so a stroke
+        // whose pressure slams about keeps slamming about. Read as total ink, since a wide dab
+        // covers the narrow one beside it and every column reads as wide either way.
+        int Ink(StrokeSmoothing smoothing)
+        {
+            using var session = new PaintSession(300, 200);
+            var wide = Taper with
+            {
+                Size = 80,
+                PressureDrives = PressureControl.Size,
+                Smoothing = smoothing,
+            };
+
+            int i = 0;
+            for (double x = 20; x <= 280; x += 2, i++)
+                session.AddSample(x, 100, i % 2 == 0 ? 0.2 : 0.9, wide);
+            session.EndStroke();
+
+            int ink = 0;
+            for (int y = 0; y < session.Height; y++)
+                for (int x = 0; x < session.Width; x++)
+                    if (session.Bitmap.GetPixel(x, y) != SKColors.White) ink++;
+            return ink;
+        }
+
+        int untouched = Ink(StrokeSmoothing.None);
+        int positionOnly = Ink(new StrokeSmoothing { Position = 60 });
+
+        Assert.True(Math.Abs(untouched - positionOnly) < untouched * 0.05,
+            $"filtering the path changed the widths: {positionOnly} px against {untouched} px");
+    }
+
+    [Fact]
+    public void An_undo_replays_a_stroke_with_the_filtering_it_was_drawn_under()
+    {
+        // The stroke under test is drawn *with* a filter, which is what makes this able to fail.
+        // Replaying it without one -- or with whatever is selected later -- shifts and reshapes it,
+        // because the filter lags and flattens. A stroke drawn unfiltered would look identical
+        // however it was replayed, and the test would prove nothing.
+        using var session = new PaintSession(240, 200);
+
+        var wobbly = Taper with { Size = 12, Smoothing = new StrokeSmoothing { Position = 80 } };
+        for (double x = 20; x <= 220; x += 2)
+            session.AddSample(x, 60 + 6 * Math.Sin(x * 0.9), 1.0, wobbly);
+        session.EndStroke();
+
+        using var before = session.Bitmap.Copy();
+
+        // An unfiltered brush, drawn elsewhere, then undone. The first stroke must not have moved.
+        Stroke(session, Taper, 160);
+        Assert.True(session.Undo());
+
+        int changed = 0;
+        for (int y = 0; y < 120; y++)
+            for (int x = 0; x < session.Width; x++)
+                if (before.GetPixel(x, y) != session.Bitmap.GetPixel(x, y)) changed++;
+
+        Assert.Equal(0, changed);
+    }
+
+    [Fact]
+    public void Smoothing_moves_the_ink_but_not_the_recorded_path()
+    {
+        // The filter is non-destructive: the document keeps where the pen went, and what it drew
+        // is worked out from that. Both halves matter, so both are checked -- the samples have to
+        // be untouched, and the ink has to have moved, or the filter is not running at all.
+        var path = new List<(double X, double Y)>();
+        for (double x = 20; x <= 220; x += 2) path.Add((x, 100 + 6 * Math.Sin(x * 0.9)));
+
+        using var plain = new PaintSession(240, 200);
+        using var filtered = new PaintSession(240, 200);
+
+        var soft = Taper with { Size = 10, Smoothing = new StrokeSmoothing { Position = 80 } };
+
+        foreach (var (session, brush) in new[] { (plain, Taper with { Size = 10 }), (filtered, soft) })
+        {
+            foreach (var (x, y) in path) session.AddSample(x, y, 1.0, brush);
+            session.EndStroke();
+        }
+
+        // Recorded identically: smoothing never reaches the stroke.
+        Assert.Equal(plain.History.Strokes[0].Samples.Select(s => s.Position),
+                     filtered.History.Strokes[0].Samples.Select(s => s.Position));
+
+        // Drawn differently: the wobble is flattened, so the ink covers fewer rows.
+        Assert.True(InkHeight(filtered, 120) < InkHeight(plain, 120),
+            $"filtered {InkHeight(filtered, 120)} px, unfiltered {InkHeight(plain, 120)} px");
+    }
+
+    [Fact]
+    public void Smoothed_pressure_reaches_the_brush_through_its_curve()
+    {
+        // The order the session applies things in: filter the pen, then let the brush respond.
+        // Curving first and filtering after would smooth the brush's output rather than the hand's
+        // input, and a brush with a steep curve would come out filtered harder than a gentle one
+        // holding the same pen.
+        //
+        // Only visible with pressure smoothing on, which is why nothing else here catches it: with
+        // it off the filtered pressure is the raw pressure and both orders agree.
+        var brush = Taper with { Size = 80, PressureDrives = PressureControl.Size };
+
+        // Both runs filter the position, so the only thing that differs is the pressure reach.
+        // With the position reach at zero instead, a build that filtered pressure whenever it
+        // filtered position would still pass -- there would be nothing for it to key off.
+        int InkArea(bool smoothPressure)
+        {
+            using var session = new PaintSession(300, 200);
+            var filtered = brush with
+            {
+                Smoothing = new StrokeSmoothing
+                {
+                    Position = 60,
+                    Pressure = smoothPressure ? 60 : 0,
+                },
+            };
+
+            // Pressure slamming between light and heavy on every sample, along a straight line.
+            int i = 0;
+            for (double x = 20; x <= 280; x += 2, i++)
+                session.AddSample(x, 100, i % 2 == 0 ? 0.2 : 0.9, filtered);
+            session.EndStroke();
+
+            // Total ink, not the width at a column. At two units between samples an 72 px dab
+            // swallows the 16 px one beside it, so every column reads as wide whether or not the
+            // pressure was steadied -- which is how the first version of this test measured
+            // nothing. The area over the whole stroke does show it: a steadied pressure settles
+            // near the mean and lays down a narrower ribbon than the peaks would.
+            int ink = 0;
+            for (int y = 0; y < session.Height; y++)
+                for (int x = 0; x < session.Width; x++)
+                    if (session.Bitmap.GetPixel(x, y) != SKColors.White) ink++;
+            return ink;
+        }
+
+        int jumpy = InkArea(smoothPressure: false);
+        int steady = InkArea(smoothPressure: true);
+
+        Assert.True(jumpy > 10000, $"the stroke should cover real ground, it covered {jumpy} px");
+        Assert.True(steady < jumpy * 0.8,
+            $"smoothing pressure should narrow the stroke: {steady} px against {jumpy} px");
+    }
+
+    [Fact]
+    public void Changing_smoothing_mid_stroke_does_not_change_the_stroke()
+    {
+        // The filter carries state across samples. Changing how far it reaches part way through
+        // would put a step in the middle of the stroke.
+        using var session = new PaintSession(240, 200);
+        var brush = Taper with { Size = 10 };
+        var filtered = brush with { Smoothing = new StrokeSmoothing { Position = 120 } };
+
+        for (double x = 20; x <= 120; x += 2) session.AddSample(x, 100, 1.0, brush);
+        for (double x = 122; x <= 220; x += 2) session.AddSample(x, 100, 1.0, filtered);
+        session.EndStroke();
+
+        Assert.Single(session.History.Strokes);
+        Assert.False(session.History.Strokes[0].Brush.Smoothing.IsEnabled);
+
+        // A filter switched on half way would have pulled the second half off the line.
+        Assert.Equal(InkHeight(session, 60), InkHeight(session, 200));
+    }
+
+    [Fact]
     public void Every_brush_in_the_opening_library_puts_ink_down()
     {
         // The library is a starting set, not decoration: a preset that drew nothing -- a curve

@@ -37,6 +37,12 @@ public readonly record struct PenOrientation(
 /// the brush too. Width and opacity are deliberately not stored: they follow from this value and
 /// that brush by arithmetic, so keeping them would be a second copy to keep in step for no gain.
 /// </para>
+/// <para>
+/// <b>Smoothing is not applied here.</b> A filtered sample is computed on the way to the engine and
+/// thrown away; what is recorded is where the pen went. That keeps the filter non-destructive --
+/// the pen's own path survives in the document -- at the cost of having to run it again to replay
+/// the stroke, which <c>PaintSession</c> does. See <see cref="PathSmoother"/>.
+/// </para>
 /// </remarks>
 /// <param name="Position">Canvas-local position in DIPs.</param>
 /// <param name="TimestampMicroseconds">
@@ -111,9 +117,10 @@ public sealed class Stroke
     /// The brush that drew this stroke, in full.
     /// </summary>
     /// <remarks>
-    /// Engine, size, spacing, opacity, pressure target and curve, all of it. A replay uses this
-    /// rather than whatever is selected now, which is what stops an undo redrawing older strokes in
-    /// a brush they were never made with.
+    /// Engine, size, spacing, opacity, pressure target, curve and smoothing -- all of it. A replay
+    /// uses this rather than whatever is selected now, which is what stops an undo redrawing older
+    /// strokes in a brush they were never made with. Smoothing rides along here rather than being
+    /// recorded separately, which is one of the things moving it onto the brush bought.
     /// </remarks>
     public BrushSettings Brush { get; }
 

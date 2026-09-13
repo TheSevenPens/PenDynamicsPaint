@@ -76,6 +76,19 @@ public sealed class PaintSession : IDisposable
     /// <summary>The engine drawing the stroke in progress. Follows <see cref="_strokeBrush"/>.</summary>
     private IBrushEngine? _strokeEngine;
 
+    /// <summary>
+    /// The path filter, used both live and on replay.
+    /// </summary>
+    /// <remarks>
+    /// One instance, reset per stroke. Replay runs it again from the recorded raw samples rather
+    /// than storing what it produced, so a stroke keeps the pen's own path and still redraws
+    /// exactly: the filter is deterministic and the stroke records the settings it ran under.
+    /// </remarks>
+    private readonly PathSmoother _smoother = new();
+
+    /// <summary>The last position the filter produced, which is where ink actually went.</summary>
+    private StrokeSample? _lastDrawn;
+
     // The stroke in progress, when compositing is Wash. A layer like any other -- transparent,
     // document-sized -- except that it is transient and sits directly above the layer being drawn
     // on rather than in the stack.
@@ -359,28 +372,55 @@ public sealed class PaintSession : IDisposable
         {
             _strokeBrush = brush;
             _strokeEngine = EngineFor(brush);
+            _smoother.Reset();
             History.BeginStroke(brush, _strokeColor, ActiveLayer.Id);
             BeginLayerIfWashing(_strokeEngine);
             _strokeEngine.BeginStroke();
         }
 
         var active = _strokeBrush!;
-        double processed = active.Process(pressure);
 
+        // Recorded as the pen reported it. The filtered form is worked out below and not kept:
+        // the document holds the pen's path, and replay runs the filter again.
         var sample = new StrokeSample(new global::Avalonia.Point(documentX, documentY),
-                                      pressure, orientation, processed,
+                                      pressure, orientation, active.Process(pressure),
                                       timestampMicroseconds);
         History.AddSample(sample);
 
-        if (_lastSample is { } from && (active.DrawAtZeroPressure || processed > 0))
+        var drawn = Filter(sample, active);
+
+        if (_lastDrawn is { } from && (active.DrawAtZeroPressure || drawn.ProcessedPressure > 0))
         {
             var target = _layerActive ? _strokeLayer!.Canvas : ActiveLayer.Canvas;
-            _strokeEngine!.DrawSegment(target, from, sample, active, _strokeColor,
+            _strokeEngine!.DrawSegment(target, from, drawn, active, _strokeColor,
                                        PressureChannel.Processed);
-            MarkStale(SegmentBounds(from, sample, active));
+            MarkStale(SegmentBounds(from, drawn, active));
         }
 
         _lastSample = sample;
+        _lastDrawn = drawn;
+    }
+
+    /// <summary>
+    /// The sample the engine should draw: the filtered path, then the brush's reading of it.
+    /// </summary>
+    /// <remarks>
+    /// The order matters and is Krita's. Filtering steadies what the pen reported; the curve is
+    /// the brush's response to it. Curving first and filtering after would smooth the brush's
+    /// output rather than the hand's input, so a brush with a steep curve would be filtered harder
+    /// than a gentle one holding the same pen.
+    /// </remarks>
+    private StrokeSample Filter(in StrokeSample sample, BrushSettings brush)
+    {
+        if (!brush.Smoothing.IsEnabled) return sample;
+
+        var filtered = _smoother.Next(sample, brush.Smoothing);
+        return sample with
+        {
+            Position = filtered.Position,
+            RawPressure = filtered.RawPressure,
+            ProcessedPressure = brush.Process(filtered.RawPressure),
+        };
     }
 
     /// <summary>End the stroke in progress, leaving what it drew.</summary>
@@ -394,6 +434,7 @@ public sealed class PaintSession : IDisposable
 
         _strokeBrush = null;
         _strokeEngine = null;
+        _lastDrawn = null;
     }
 
     /// <summary>Start a fresh stroke layer, if this stroke is being washed.</summary>
@@ -602,14 +643,27 @@ public sealed class PaintSession : IDisposable
 
         BeginLayerIfWashing(engine);
         engine.BeginStroke();
+        _smoother.Reset();
 
         var target = _layerActive ? _strokeLayer!.Canvas : layer.Canvas;
         var samples = stroke.Samples;
-        for (int i = 1; i < samples.Count; i++)
+
+        // Filtered again from the raw samples, through this stroke's own brush. Deterministic, so
+        // it lands exactly where it did the first time; filtering with whatever is selected now
+        // would move ink that is already on the canvas.
+        StrokeSample? previous = null;
+        for (int i = 0; i < samples.Count; i++)
         {
-            if (!stroke.Brush.DrawAtZeroPressure && samples[i].ProcessedPressure <= 0) continue;
-            engine.DrawSegment(target, samples[i - 1], samples[i],
-                               stroke.Brush, stroke.Color, PressureChannel.Processed);
+            var drawn = Filter(samples[i], stroke.Brush);
+
+            if (previous is { } from &&
+                (stroke.Brush.DrawAtZeroPressure || drawn.ProcessedPressure > 0))
+            {
+                engine.DrawSegment(target, from, drawn,
+                                   stroke.Brush, stroke.Color, PressureChannel.Processed);
+            }
+
+            previous = drawn;
         }
 
         engine.EndStroke();
