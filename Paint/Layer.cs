@@ -35,6 +35,7 @@ public sealed class Layer : IDisposable
     /// <see cref="BakeAsBaseline"/>.
     /// </remarks>
     private SKBitmap? _baseline;
+    private SKCanvas? _baselineCanvas;
 
     // Held rather than built per composite: a translucent layer is drawn through this on every
     // frame of every stroke, and allocating a paint per frame per layer is allocating in the
@@ -112,27 +113,59 @@ public sealed class Layer : IDisposable
         if (_baseline is not null) Canvas.DrawBitmap(_baseline, 0, 0);
     }
 
+    /// <summary>Throw away the pixels <b>and</b> the baseline.</summary>
+    /// <remarks>
+    /// What clearing a document means. Wiping only the visible pixels leaves the baseline holding
+    /// whatever was baked into it, and the next undo resets to that -- so work the user cleared
+    /// reappears on its own, which reads as the application inventing marks.
+    /// </remarks>
+    internal void ClearEverything()
+    {
+        Canvas.Clear(SKColors.Transparent);
+        _baselineCanvas?.Clear(SKColors.Transparent);
+    }
+
+    /// <summary>
+    /// Where to draw pixels that replay should start from, rather than reproduce.
+    /// </summary>
+    /// <remarks>
+    /// Allocated on first use, because most layers never need one. Drawing a stroke here and
+    /// dropping it from the history is how a stroke leaves the undo stack without leaving the
+    /// canvas -- see <c>PaintSession.BakeStrokesOverCap</c>.
+    /// </remarks>
+    internal SKCanvas BaselineCanvas
+    {
+        get
+        {
+            if (_baselineCanvas is not null) return _baselineCanvas;
+
+            _baseline ??= new SKBitmap(Bitmap.Width, Bitmap.Height, SKColorType.Bgra8888,
+                                       SKAlphaType.Premul);
+            _baselineCanvas = new SKCanvas(_baseline);
+            _baselineCanvas.Clear(SKColors.Transparent);
+            return _baselineCanvas;
+        }
+    }
+
     /// <summary>
     /// Make the current pixels the point replay starts from.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Called when pixels enter the layer that no stroke in the history accounts for -- today only
-    /// a merge down, which brings another layer's marks across. Without it, undoing a later stroke
-    /// would clear the layer and replay only its own strokes, and everything merged in would
-    /// vanish: a destructive result from a command that is supposed to step backwards.
+    /// Called when pixels enter the layer that no stroke in the history accounts for. Without it,
+    /// undoing a later stroke would clear the layer and replay only its own strokes, and everything
+    /// else would vanish: a destructive result from a command that is supposed to step backwards.
     /// </para>
     /// <para>
-    /// This is the mechanism <c>StrokeHistory.EvictOldestIfOverCap</c> describes as baking into
-    /// the replay baseline, and it is what that cap will need when it is wired up.
+    /// Used by a merge down, which brings another layer's marks across wholesale. A stroke evicted
+    /// by the history cap goes through <see cref="BaselineCanvas"/> instead, because only that one
+    /// stroke should be added -- baking the whole layer would also bake the strokes still in the
+    /// history, and replay would then draw them a second time.
     /// </para>
     /// </remarks>
     internal void BakeAsBaseline()
     {
-        _baseline ??= new SKBitmap(Bitmap.Width, Bitmap.Height, SKColorType.Bgra8888,
-                                   SKAlphaType.Premul);
-
-        using var canvas = new SKCanvas(_baseline);
+        var canvas = BaselineCanvas;
         canvas.Clear(SKColors.Transparent);
         canvas.DrawBitmap(Bitmap, 0, 0);
     }
@@ -140,6 +173,7 @@ public sealed class Layer : IDisposable
     public void Dispose()
     {
         _paint.Dispose();
+        _baselineCanvas?.Dispose();
         _baseline?.Dispose();
         Canvas.Dispose();
         Bitmap.Dispose();

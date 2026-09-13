@@ -208,6 +208,108 @@ public class LayerStackTests
     }
 
     [Fact]
+    public void The_history_stops_growing_and_keeps_what_it_drops()
+    {
+        // The caps bound a long session. Until they were wired up they were dead code and the
+        // history grew for as long as the application ran.
+        using var session = new PaintSession(600, 240);
+        var brush = BrushSettings.Default with { Size = 6, PressureDrives = PressureControl.Size };
+
+        // The first stroke sits on its own, away from the rest, so it can be identified later.
+        session.AddSample(20, 30, 1.0, brush);
+        session.AddSample(60, 30, 1.0, brush);
+        session.EndStroke();
+
+        // Enough more to push it past the cap.
+        for (int i = 0; i < StrokeHistory.MaxStrokes; i++)
+        {
+            double x = 20 + i % 500;
+            session.AddSample(x, 150, 1.0, brush);
+            session.AddSample(x + 4, 150, 1.0, brush);
+            session.EndStroke();
+        }
+
+        Assert.Equal(StrokeHistory.MaxStrokes, session.History.Strokes.Count);
+        Assert.DoesNotContain(session.History.Strokes, s => s.Samples[0].Position.Y == 30);
+
+        // Evicted from the history, still on the canvas.
+        Assert.NotEqual(SKColors.White, session.Bitmap.GetPixel(40, 30));
+
+        // And it has to survive an undo, which clears the layer to its baseline and replays what
+        // is retained. Dropping an evicted stroke without baking it in would erase it here --
+        // work the user can still see, destroyed by a command that steps backwards.
+        Assert.True(session.Undo());
+        Assert.NotEqual(SKColors.White, session.Bitmap.GetPixel(40, 30));
+    }
+
+    [Fact]
+    public void An_undo_after_an_eviction_does_not_draw_anything_twice()
+    {
+        // The baseline must hold the evicted strokes and nothing else. Bake the whole layer into
+        // it instead -- or start it from the layer's pixels -- and the strokes still in the history
+        // are in there as well, so replay lays them down a second time.
+        //
+        // The brush is translucent for that reason. Drawing an opaque stroke twice looks exactly
+        // like drawing it once, and this fault would sit unnoticed until someone painted in ink
+        // that stacks.
+        using var session = new PaintSession(600, 260);
+        var brush = BrushSettings.Default with
+        {
+            Size = 30,
+            Opacity = 0.4,
+            PressureDrives = PressureControl.Size,
+        };
+
+        // A band of overlapping strokes, more than the cap holds, so the oldest are evicted.
+        for (int i = 0; i <= StrokeHistory.MaxStrokes; i++)
+        {
+            session.AddSample(260 + i % 40, 100, 1.0, brush);
+            session.AddSample(300 + i % 40, 100, 1.0, brush);
+            session.EndStroke();
+        }
+
+        // One more, well away from the band, so undoing it cannot change the band itself.
+        session.AddSample(100, 210, 1.0, brush);
+        session.AddSample(200, 210, 1.0, brush);
+        session.EndStroke();
+
+        using var before = session.Bitmap.Copy();
+        Assert.True(session.Undo());
+
+        int changed = 0;
+        for (int y = 60; y < 150; y++)
+            for (int x = 0; x < session.Width; x++)
+                if (before.GetPixel(x, y) != session.Bitmap.GetPixel(x, y)) changed++;
+
+        Assert.Equal(0, changed);
+    }
+
+    [Fact]
+    public void Clear_really_drops_the_merged_pixels_rather_than_hiding_them()
+    {
+        // Clear wipes what is on screen, but the merged pixels also live in the layer's replay
+        // baseline. Leave that behind and the next undo resets to it, and work the user cleared
+        // comes back on its own.
+        using var session = new PaintSession(240, 200);
+
+        Stroke(session, Red, 60);
+        session.AddLayer();
+        Stroke(session, Blue, 140);
+        Assert.True(session.MergeDown(1));
+
+        session.Clear();
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 60));
+
+        // Draw something new and step back off it. The cleared work must stay gone.
+        Stroke(session, Red, 100);
+        Assert.True(session.Undo());
+
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 60));
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 140));
+        Assert.Equal(SKColors.White, session.Bitmap.GetPixel(120, 100));
+    }
+
+    [Fact]
     public void Switching_layer_ends_the_stroke_in_progress()
     {
         // Half a stroke on each layer would leave history describing neither.
