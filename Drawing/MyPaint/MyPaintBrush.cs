@@ -57,6 +57,22 @@ public enum MyPaintSetting
     /// <summary>Which way the long axis points, in degrees. Only meaningful above a ratio of 1.</summary>
     EllipticalDabAngle,
 
+    /// <summary>Shifts the ink's hue, as a fraction of a full turn. Wraps.</summary>
+    ChangeColorH,
+
+    /// <summary>
+    /// Shifts the ink's saturation, scaled by how saturated and how bright it already is.
+    /// </summary>
+    /// <remarks>
+    /// Multiplicative rather than additive, which is libmypaint's, and it has a consequence worth
+    /// knowing: <b>grey ink cannot be given a colour this way</b>. The shift is scaled by the
+    /// current saturation, so at zero it stays at zero however hard this is driven.
+    /// </remarks>
+    ChangeColorHsvS,
+
+    /// <summary>Shifts the ink's value. Added outright, then clamped.</summary>
+    ChangeColorV,
+
     /// <summary>Dabs per radius of travel, measured against the brush's base radius.</summary>
     DabsPerBasicRadius,
 
@@ -160,6 +176,9 @@ public sealed class MyPaintBrush
             [MyPaintSetting.Hardness] = 0.8f,
             [MyPaintSetting.EllipticalDabRatio] = 1.0f,
             [MyPaintSetting.EllipticalDabAngle] = 90.0f,
+            [MyPaintSetting.ChangeColorH] = 0.0f,
+            [MyPaintSetting.ChangeColorHsvS] = 0.0f,
+            [MyPaintSetting.ChangeColorV] = 0.0f,
             [MyPaintSetting.DabsPerBasicRadius] = 0.0f,
             [MyPaintSetting.DabsPerActualRadius] = 2.0f,
             [MyPaintSetting.OffsetByRandom] = 0.0f,
@@ -265,6 +284,9 @@ public sealed class MyPaintBrush
             ["hardness"] = MyPaintSetting.Hardness,
             ["elliptical_dab_ratio"] = MyPaintSetting.EllipticalDabRatio,
             ["elliptical_dab_angle"] = MyPaintSetting.EllipticalDabAngle,
+            ["change_color_h"] = MyPaintSetting.ChangeColorH,
+            ["change_color_hsv_s"] = MyPaintSetting.ChangeColorHsvS,
+            ["change_color_v"] = MyPaintSetting.ChangeColorV,
             ["dabs_per_basic_radius"] = MyPaintSetting.DabsPerBasicRadius,
             ["dabs_per_actual_radius"] = MyPaintSetting.DabsPerActualRadius,
             ["offset_by_random"] = MyPaintSetting.OffsetByRandom,

@@ -17,10 +17,11 @@ namespace PenDynamicsPaint.Drawing;
 /// </para>
 /// <para>
 /// <b>What is honoured, and what is not.</b> Radius, both opacities, the pile-up correction,
-/// hardness, spacing, elliptical dabs and the two random offsets reach the mark. Smudge, colour
-/// dynamics, tracking and the eraser do not: smudge needs a read of the canvas, and the rest
-/// belong to parts of the pipeline that have their own answers here already. A brush file that
-/// leans on any of them still loads, and says so through <see cref="MyPaintBrush.Ignored"/>.
+/// hardness, spacing, elliptical dabs, the HSV colour shifts and the two random offsets reach the
+/// mark. Smudge, the HSL colour pair, tracking and the eraser do not: smudge needs a read of the
+/// canvas, and the rest belong to parts of the pipeline that have their own answers here already.
+/// A brush file that leans on any of them still loads, and says so through
+/// <see cref="MyPaintBrush.Ignored"/>.
 /// </para>
 /// </remarks>
 public sealed class MyPaintBrushEngine : IBrushEngine
@@ -250,6 +251,8 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         float alpha = Alpha(brush, inputs);
         if (alpha <= 0) return;
 
+        color = Tinted(color, brush, inputs);
+
         float hardness = Math.Clamp(brush[MyPaintSetting.Hardness].ValueFor(inputs), 0f, 1f);
 
         _paint.Blender = Blender;
@@ -288,6 +291,58 @@ public sealed class MyPaintBrushEngine : IBrushEngine
 
         _paint.Shader = null;
         if (elliptical) canvas.Restore();
+    }
+
+    /// <summary>
+    /// The ink for this dab, after whatever the brush does to the colour it was handed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Ported from the colour block of <c>prepare_and_draw_dab</c> in <c>mypaint-brush.c</c> at
+    /// <c>v1.6.1</c>. The shifts are per dab and are driven by inputs like any other setting, which
+    /// is what lets a brush colour a stroke by what the pen is doing rather than by what was picked
+    /// -- a nib whose hue follows the way it is leaning, say.
+    /// </para>
+    /// <para>
+    /// Hue is added and <b>wraps</b>; value is added and clamps. Saturation is the odd one:
+    /// libmypaint scales its shift by the current saturation and value, so it moves a colour
+    /// further from or nearer to grey in proportion to how colourful it already is, and grey ink
+    /// stays grey however hard the setting is driven.
+    /// </para>
+    /// <para>
+    /// libmypaint also has an HSL pair -- <c>change_color_l</c> and <c>change_color_hsl_s</c> --
+    /// which are not here. They are a second path to the same place through a different colour
+    /// space, and a brush file that asks for them says so through <c>Ignored</c>.
+    /// </para>
+    /// </remarks>
+    private static SKColor Tinted(SKColor color, MyPaintBrush brush, in BrushInputs inputs)
+    {
+        float hue = brush[MyPaintSetting.ChangeColorH].ValueFor(inputs);
+        float saturation = brush[MyPaintSetting.ChangeColorHsvS].ValueFor(inputs);
+        float value = brush[MyPaintSetting.ChangeColorV].ValueFor(inputs);
+
+        // Skipped outright when nothing is asked for, which is the common case: a round trip
+        // through HSV is not free, and it is per dab.
+        if (hue == 0 && saturation == 0 && value == 0) return color;
+
+        color.ToHsv(out float h, out float s, out float v);
+
+        // Skia counts hue in degrees and the other two in percent; libmypaint works in fractions.
+        h /= 360f;
+        s /= 100f;
+        v /= 100f;
+
+        h += hue;
+        s += s * v * saturation;
+        v += value;
+
+        // Hue is a position on a wheel, so it wraps rather than clamping: a brush driving it from
+        // an input that goes round -- the direction of a stroke, the way the pen leans -- should
+        // come back to where it started rather than piling up at red.
+        h -= MathF.Floor(h);
+
+        return SKColor.FromHsv(h * 360f, Math.Clamp(s, 0f, 1f) * 100f,
+                               Math.Clamp(v, 0f, 1f) * 100f, color.Alpha);
     }
 
     /// <summary>Dab alpha: the two opacity settings, multiplied, then thinned for the pile-up.</summary>

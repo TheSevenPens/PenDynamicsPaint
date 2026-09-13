@@ -109,6 +109,24 @@ public static class BrushLibrary
             Name = "Tilt charcoal",
             Engine = BrushEngineKind.MyPaint,
             MyPaint = MyPaintBrush.Parse(StockBrushes.TiltCharcoal, "Tilt charcoal"),
+
+            // The one brush in the set whose width follows the pen's lean, so the one that needs
+            // the tilt reach. A longer reach than the path gets: tilt arrives quantised to whole
+            // degrees, and each of those steps is a step in the width of the mark.
+            Smoothing = new StrokeSmoothing { Position = 25, Tilt = 60 },
+        },
+
+        // A diagnostic rather than a brush to draw with. It is in the opening set because the
+        // thing it measures -- how steady the tilt reaching a brush is -- is otherwise only
+        // visible through a brush whose texture hides it.
+        //
+        // Its tilt reach starts at zero on purpose: the point is to move that slider and watch the
+        // colour settle, so it has to start from the unfiltered case.
+        new BrushSettings
+        {
+            Name = "Tilt testing",
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = MyPaintBrush.Parse(StockBrushes.TiltTesting, "Tilt testing"),
             Smoothing = new StrokeSmoothing { Position = 25 },
         },
     ];

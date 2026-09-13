@@ -445,6 +445,11 @@ public sealed class PaintSession : IDisposable
             Position = filtered.Position,
             RawPressure = filtered.RawPressure,
             ProcessedPressure = brush.Process(filtered.RawPressure),
+
+            // Orientation used to be left off this list, and so reached the brush exactly as the
+            // tablet reported it while the path beside it was being steadied. Nothing noticed
+            // until a brush read tilt.
+            Orientation = filtered.Orientation,
         };
     }
 

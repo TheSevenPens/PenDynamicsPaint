@@ -279,6 +279,18 @@
                         </Grid>
                     </Border>
 
+                    <!-- Its own reach, like the two above. A brush driven by tilt wants it
+                         steadied whether or not the line did, and tilt arrives dirtier than either
+                         of them: tablets quantise it to whole degrees. -->
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name" Text="Tilt" />
+                            <Slider Grid.Column="1" x:Name="TiltSmoothingSlider"
+                                    Minimum="0" Maximum="200" />
+                            <TextBlock Grid.Column="2" x:Name="TiltSmoothingLabel" Classes="value" />
+                        </Grid>
+                    </Border>
+
                     <Border Classes="row" x:Name="TailRow">
                         <Grid ColumnDefinitions="58,*,36">
                             <TextBlock Grid.Column="0" Classes="name" Text="Tail" />

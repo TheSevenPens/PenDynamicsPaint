@@ -608,6 +608,10 @@ public partial class MainWindow : Window
         {
             Smoothing = b.Smoothing with { Pressure = PressureSmoothingSlider.Value },
         }));
+        OnSlider(TiltSmoothingSlider, () => EditBrush(b => b with
+        {
+            Smoothing = b.Smoothing with { Tilt = TiltSmoothingSlider.Value },
+        }));
         OnSlider(TailSlider, () => EditBrush(b => b with
         {
             Smoothing = b.Smoothing with { TailAggressiveness = TailSlider.Value },
@@ -680,6 +684,8 @@ public partial class MainWindow : Window
         PositionSmoothingLabel.Text = Reach(b.Smoothing.Position);
         PressureSmoothingSlider.Value = b.Smoothing.Pressure;
         PressureSmoothingLabel.Text = Reach(b.Smoothing.Pressure);
+        TiltSmoothingSlider.Value = b.Smoothing.Tilt;
+        TiltSmoothingLabel.Text = Reach(b.Smoothing.Tilt);
         TailSlider.Value = b.Smoothing.TailAggressiveness;
         TailLabel.Text = $"{b.Smoothing.TailAggressiveness:F2}";
 
@@ -690,7 +696,8 @@ public partial class MainWindow : Window
         // them would trade height for having to open each one to see where it was set.
         CurveSummary.Text = $"{b.Curve.Start:F2} / {b.Curve.End:F2} / {b.Curve.Exponent:F2}";
         SmoothingSummary.Text = b.Smoothing.IsEnabled
-            ? $"{Reach(b.Smoothing.Position)} / {Reach(b.Smoothing.Pressure)}"
+            ? $"{Reach(b.Smoothing.Position)} / {Reach(b.Smoothing.Pressure)} / " +
+              $"{Reach(b.Smoothing.Tilt)}"
             : "off";
 
         _syncingBrush = false;

@@ -5,10 +5,11 @@ namespace PenDynamicsPaint.Drawing;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Position and pressure are filtered independently</b>, each with its own reach. They are
-/// different problems: a shaky hand wants its path steadied while its pressure is left alone, and a
-/// pen with a noisy sensor wants the opposite. Krita couples them -- one distance, and a switch
-/// that turns pressure filtering on with the same reach -- which cannot express either case.
+/// <b>Position, pressure and tilt are filtered independently</b>, each with its own reach. They
+/// are different problems: a shaky hand wants its path steadied while its pressure is left alone, a
+/// pen with a noisy sensor wants the opposite, and a brush whose width follows tilt wants tilt
+/// steadied whether or not the line needed help. Krita couples the first two -- one distance, and a
+/// switch that turns pressure filtering on with the same reach -- which cannot express any of it.
 /// </para>
 /// <para>
 /// <b>Part of the brush.</b> This sat on the application at first, on the reasoning that smoothing
@@ -38,6 +39,7 @@ public readonly record struct StrokeSmoothing
 
     private readonly double _position = 0;
     private readonly double _pressure = 0;
+    private readonly double _tilt = 0;
     private readonly double _tail = DefaultTail;
 
     public StrokeSmoothing() { }
@@ -72,6 +74,34 @@ public readonly record struct StrokeSmoothing
     }
 
     /// <summary>
+    /// How far back the tilt filter reaches, in document units. Zero is off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Its own reach for the same reason pressure has one: a brush driven by tilt wants it steadied
+    /// whether or not the path did. Until tilt reached the mark there was nothing for this to fix
+    /// and the orientation was simply passed through, which is where the wobble was coming from.
+    /// </para>
+    /// <para>
+    /// <b>Tilt arrives dirtier than position does.</b> Tablets quantise it coarsely -- often to
+    /// whole degrees -- so a brush mapping it onto radius turns each step into a visible jump, and
+    /// the azimuth is worst of all near vertical, where it is the pole of a spherical coordinate
+    /// and a millimetre of wobble swings it through tens of degrees. See <see cref="PathSmoother"/>
+    /// for what is done about that.
+    /// </para>
+    /// <para>
+    /// <b>Not a port.</b> libmypaint does not filter tilt at all and Krita's smoothing does not
+    /// reach it, so there is no upstream behaviour to match here -- only the same weighting the
+    /// other two use, applied to a signal that needs it more.
+    /// </para>
+    /// </remarks>
+    public double Tilt
+    {
+        get => _tilt;
+        init => _tilt = double.IsNaN(value) ? 0 : Math.Clamp(value, 0, MaxDistance);
+    }
+
+    /// <summary>
     /// How hard the filter lets go as the pen lifts. Zero holds on to the end of the stroke.
     /// </summary>
     /// <remarks>
@@ -91,6 +121,9 @@ public readonly record struct StrokeSmoothing
     /// <summary>True when the pressure is filtered.</summary>
     public bool SmoothsPressure => _pressure > 0;
 
+    /// <summary>True when the pen's orientation is filtered.</summary>
+    public bool SmoothsTilt => _tilt > 0;
+
     /// <summary>False when this leaves the pen alone, in which case no filter is run at all.</summary>
-    public bool IsEnabled => SmoothsPosition || SmoothsPressure;
+    public bool IsEnabled => SmoothsPosition || SmoothsPressure || SmoothsTilt;
 }
