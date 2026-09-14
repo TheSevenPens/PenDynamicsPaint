@@ -13,6 +13,10 @@ using SkiaSharp;
 using WinPenKit;
 using WinPenKit.Avalonia;
 
+// Aliased rather than imported whole: Avalonia.Controls.Shapes also holds a Path, and this file
+// works with file paths.
+using Ellipse = Avalonia.Controls.Shapes.Ellipse;
+
 namespace PenDynamicsPaint;
 
 /// <summary>
@@ -54,6 +58,9 @@ public partial class MainWindow : Window
 
     /// <summary>The last pressure the pen reported, for the dot on the curve.</summary>
     private double _livePressure;
+
+    /// <summary>Which node of the pressure curve the pointer has hold of, if any.</summary>
+    private CurveNode _curveDrag;
 
     /// <summary>When that reading arrived, so a stale one can be let go of.</summary>
     /// <remarks>
@@ -1093,18 +1100,21 @@ public partial class MainWindow : Window
         OnSlider(BrushOpacitySlider,
                  () => EditBrush(b => b with { Opacity = BrushOpacitySlider.Value / 100.0 }));
 
-        OnSlider(CurveStartSlider, () => EditBrush(b => b with
+        // The curve is edited on the plot rather than by three sliders beside it. A slider for
+        // Start and a slider for End describe two ends of a range without showing that they are
+        // two ends of the same range, and the exponent slider is the worst of the three: a number
+        // between 0.1 and 4 that has to be solved for to get a shape anyone can picture.
+        CurvePlot.PointerPressed += CurvePlot_PointerPressed;
+        CurvePlot.PointerMoved += CurvePlot_PointerMoved;
+        CurvePlot.PointerReleased += (_, e) =>
         {
-            Curve = b.Curve with { Start = CurveStartSlider.Value },
-        }));
-        OnSlider(CurveEndSlider, () => EditBrush(b => b with
-        {
-            Curve = b.Curve with { End = CurveEndSlider.Value },
-        }));
-        OnSlider(CurveExponentSlider, () => EditBrush(b => b with
-        {
-            Curve = b.Curve with { Exponent = CurveExponentSlider.Value },
-        }));
+            _curveDrag = CurveNode.None;
+            e.Pointer.Capture(null);
+        };
+
+        OnNumberBox(CurveStartBox, (v, b) => b with { Curve = b.Curve with { Start = v } });
+        OnNumberBox(CurveEndBox, (v, b) => b with { Curve = b.Curve with { End = v } });
+        OnNumberBox(CurveExponentBox, (v, b) => b with { Curve = b.Curve with { Exponent = v } });
 
         OnSlider(PositionSmoothingSlider, () => EditBrush(b => b with
         {
@@ -1184,12 +1194,9 @@ public partial class MainWindow : Window
         BrushOpacitySlider.Value = b.Opacity * 100;
         BrushOpacityLabel.Text = $"{b.Opacity * 100:F0}%";
 
-        CurveStartSlider.Value = b.Curve.Start;
-        CurveStartLabel.Text = $"{b.Curve.Start:F2}";
-        CurveEndSlider.Value = b.Curve.End;
-        CurveEndLabel.Text = $"{b.Curve.End:F2}";
-        CurveExponentSlider.Value = b.Curve.Exponent;
-        CurveExponentLabel.Text = $"{b.Curve.Exponent:F2}";
+        CurveStartBox.Text = $"{b.Curve.Start:F2}";
+        CurveEndBox.Text = $"{b.Curve.End:F2}";
+        CurveExponentBox.Text = $"{b.Curve.Exponent:F2}";
 
         PositionSmoothingSlider.Value = b.Smoothing.Position;
         PositionSmoothingLabel.Text = Reach(b.Smoothing.Position);
@@ -1270,56 +1277,211 @@ public partial class MainWindow : Window
     /// </remarks>
     private void ShowCurveDot(double rawPressure)
     {
-        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
-
-        if (rawPressure <= 0 || w <= 1 || h <= 1)
+        if (rawPressure <= 0 || !PlotIsLaidOut)
         {
             CurveDot.IsVisible = false;
             CurveDotDrop.IsVisible = false;
             return;
         }
 
-        const double pad = 6;
-        double plotW = w - 2 * pad, plotH = h - 2 * pad;
-
         double x = Math.Clamp(rawPressure, 0, 1);
         double y = Math.Clamp(Brush.Curve.Apply(x), 0, 1);
+        var p = CurvePoint(x, y);
 
-        double px = pad + x * plotW;
-        double py = h - pad - y * plotH;
-
-        Canvas.SetLeft(CurveDot, px - CurveDot.Width / 2);
-        Canvas.SetTop(CurveDot, py - CurveDot.Height / 2);
+        Canvas.SetLeft(CurveDot, p.X - CurveDot.Width / 2);
+        Canvas.SetTop(CurveDot, p.Y - CurveDot.Height / 2);
         CurveDot.IsVisible = true;
 
         // Down to the axis, so the reading can be read off the bottom as well as seen on the curve.
-        CurveDotDrop.StartPoint = new Point(px, py);
-        CurveDotDrop.EndPoint = new Point(px, h - pad);
+        CurveDotDrop.StartPoint = p;
+        CurveDotDrop.EndPoint = new Point(p.X, CurvePlot.Bounds.Height - CurvePad);
         CurveDotDrop.IsVisible = true;
+    }
+
+    /// <summary>Which node of the pressure curve something refers to.</summary>
+    private enum CurveNode { None, Start, Bend, End }
+
+    /// <summary>The margin between the edge of the plot and where 0 and 1 sit.</summary>
+    /// <remarks>
+    /// Room for a node sitting at either end. Without it, half of the node at the origin would be
+    /// outside the border, and the half left inside is the half that cannot be grabbed.
+    /// </remarks>
+    private const double CurvePad = 6;
+
+    /// <summary>False until the flyout has opened and the plot has been given a size.</summary>
+    private bool PlotIsLaidOut => CurvePlot.Bounds.Width > 1 && CurvePlot.Bounds.Height > 1;
+
+    /// <summary>Where a point on the unit square lands in the plot.</summary>
+    private Point CurvePoint(double x, double y)
+    {
+        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
+
+        return new Point(CurvePad + x * (w - 2 * CurvePad),
+                         h - CurvePad - y * (h - 2 * CurvePad));
+    }
+
+    /// <summary>The reverse: where a point in the plot sits on the unit square.</summary>
+    private (double X, double Y) CurveValue(Point at)
+    {
+        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
+
+        return (Math.Clamp((at.X - CurvePad) / Math.Max(1, w - 2 * CurvePad), 0, 1),
+                Math.Clamp((h - CurvePad - at.Y) / Math.Max(1, h - 2 * CurvePad), 0, 1));
+    }
+
+    /// <summary>Where a node sits on the unit square.</summary>
+    /// <remarks>
+    /// All three are points the curve itself passes through, which is the whole idea: the response
+    /// starts at Start, reaches full at End, and halfway between the two it is at a half raised to
+    /// the exponent. None of them is a handle floating beside the line.
+    /// </remarks>
+    private static (double X, double Y) NodeAt(PressureCurve curve, CurveNode node) => node switch
+    {
+        CurveNode.Start => (curve.Start, 0),
+        CurveNode.End => (curve.End, 1),
+        _ => ((curve.Start + curve.End) / 2, Math.Pow(0.5, curve.Exponent)),
+    };
+
+    /// <summary>What dragging one node to a point does to the curve.</summary>
+    /// <remarks>
+    /// <para>
+    /// Start and End take the horizontal position and ignore the vertical, because that is what
+    /// they are: where along the range of the pen the response begins, and where it tops out. They
+    /// are kept from crossing. Meeting is allowed, and is the threshold brush the curve already
+    /// defines: nothing below the point, full strength at it.
+    /// </para>
+    /// <para>
+    /// The bend takes the vertical and ignores the horizontal. It rides the middle of the active
+    /// range, where the output is a half raised to the exponent whatever that range is, so the
+    /// exponent that puts it at a given height is the log of the height over the log of a half.
+    /// Pulled up, the brush comes on early; pushed down, it holds off until the pen is leaned on.
+    /// </para>
+    /// </remarks>
+    private static PressureCurve Dragged(PressureCurve curve, CurveNode node, double x, double y) =>
+        node switch
+        {
+            CurveNode.Start => curve with { Start = Math.Min(x, curve.End) },
+            CurveNode.End => curve with { End = Math.Max(x, curve.Start) },
+            _ => curve with { Exponent = Math.Log(Math.Clamp(y, 0.02, 0.98)) / Math.Log(0.5) },
+        };
+
+    /// <summary>The node near enough to a point to have been meant by it, if any.</summary>
+    /// <remarks>
+    /// A press on empty plot takes hold of nothing. There is no reading of "somewhere in the
+    /// middle" that is not a guess at which of three nodes was wanted, and a plot that jumps when
+    /// it is clicked is worse than one that waits to be aimed at.
+    /// </remarks>
+    private CurveNode NodeNear(Point at)
+    {
+        var curve = Brush.Curve;
+        var best = CurveNode.None;
+        double nearest = 22;    // generous: the node is 13px across and a pen is not a mouse
+
+        foreach (var node in new[] { CurveNode.Start, CurveNode.Bend, CurveNode.End })
+        {
+            // The bend rides the middle of the active range, and a range of no width has no
+            // middle: that curve is a step, and the exponent does nothing to it.
+            if (node == CurveNode.Bend && curve.End <= curve.Start) continue;
+
+            var (x, y) = NodeAt(curve, node);
+            var p = CurvePoint(x, y);
+            double distance = Math.Sqrt((p.X - at.X) * (p.X - at.X) + (p.Y - at.Y) * (p.Y - at.Y));
+
+            if (distance >= nearest) continue;
+
+            nearest = distance;
+            best = node;
+        }
+
+        return best;
+    }
+
+    private void CurvePlot_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!PlotIsLaidOut) return;
+
+        _curveDrag = NodeNear(e.GetPosition(CurvePlot));
+        if (_curveDrag == CurveNode.None) return;
+
+        // Captured, so a drag that leaves the plot keeps going rather than stopping at the border
+        // and stranding the node wherever the pointer happened to cross it.
+        e.Pointer.Capture(CurvePlot);
+        e.Handled = true;
+    }
+
+    private void CurvePlot_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_curveDrag == CurveNode.None || !PlotIsLaidOut) return;
+
+        var (x, y) = CurveValue(e.GetPosition(CurvePlot));
+
+        EditBrush(b => b with { Curve = Dragged(b.Curve, _curveDrag, x, y) });
+        e.Handled = true;
+    }
+
+    /// <summary>Read a number out of a text box once the user has finished typing it.</summary>
+    /// <remarks>
+    /// On Enter and on losing focus, not on every keystroke: a box read as it is typed turns 0.8
+    /// into 0 the moment the point is typed, and then fights the user for the rest of the number.
+    /// Anything that will not parse is not an edit, and the box goes back to saying what the brush
+    /// says, which is also what Escape does.
+    /// </remarks>
+    private void OnNumberBox(TextBox box, Func<double, BrushSettings, BrushSettings> apply)
+    {
+        void Commit()
+        {
+            if (double.TryParse(box.Text, out double value)) EditBrush(b => apply(value, b));
+            else ShowBrush();
+        }
+
+        box.LostFocus += (_, _) => Commit();
+
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) Commit();
+            else if (e.Key == Key.Escape) ShowBrush();
+            else return;
+
+            e.Handled = true;
+        };
     }
 
     private void DrawCurve(PressureCurve curve)
     {
-        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
-        if (w <= 1 || h <= 1) return;   // before the first layout pass
+        if (!PlotIsLaidOut) return;   // before the first layout pass
 
-        const double pad = 6;
-        double plotW = w - 2 * pad, plotH = h - 2 * pad;
+        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
 
         // Where a linear curve would run, for the shape to be read against.
-        CurveDiagonal.StartPoint = new Point(pad, h - pad);
-        CurveDiagonal.EndPoint = new Point(w - pad, pad);
+        CurveDiagonal.StartPoint = new Point(CurvePad, h - CurvePad);
+        CurveDiagonal.EndPoint = new Point(w - CurvePad, CurvePad);
 
         var points = new List<Point>();
         const int steps = 64;
         for (int i = 0; i <= steps; i++)
         {
             double x = (double)i / steps;
-            double y = curve.Apply(x);
-            points.Add(new Point(pad + x * plotW, h - pad - y * plotH));
+            points.Add(CurvePoint(x, curve.Apply(x)));
         }
 
         CurveLine.Points = points;
+
+        Place(CurveStartNode, CurveNode.Start);
+        Place(CurveEndNode, CurveNode.End);
+
+        // No middle to a range of no width, so there is nothing there to grab and nothing it
+        // would do if there were.
+        CurveBendNode.IsVisible = curve.End > curve.Start;
+        if (CurveBendNode.IsVisible) Place(CurveBendNode, CurveNode.Bend);
+
+        void Place(Ellipse node, CurveNode which)
+        {
+            var (x, y) = NodeAt(curve, which);
+            var p = CurvePoint(x, y);
+
+            Canvas.SetLeft(node, p.X - node.Width / 2);
+            Canvas.SetTop(node, p.Y - node.Height / 2);
+        }
     }
 
     private void PopulateApis()

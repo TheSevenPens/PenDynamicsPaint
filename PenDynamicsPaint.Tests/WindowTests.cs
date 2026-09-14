@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
@@ -252,6 +253,285 @@ public class WindowTests
 
             // Nothing chosen until it is, so closing it changes no document.
             Assert.Null(dialog.Chosen);
+        });
+    }
+
+    /// <summary>Open the pressure curve flyout and hand back the plot inside it.</summary>
+    /// <remarks>
+    /// The only test here that needs a shown window, and it needs one for a specific reason: a
+    /// pointer event carries its position relative to a root visual, and translating that into the
+    /// coordinates of a control -- which is what the handler under test does -- gives nothing at
+    /// all for a control that has never been attached to a root. Every other test raises events on
+    /// controls whose position does not matter and leaves the window unshown.
+    /// </remarks>
+    private static CurvePlotUnderTest OpenCurvePlot(MainWindow window)
+    {
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var section = window.GetControl<Button>("CurveSection");
+        section.Flyout!.ShowAt(section);
+        Dispatcher.UIThread.RunJobs();
+
+        var plot = window.GetControl<Canvas>("CurvePlot");
+        var root = (Visual?)TopLevel.GetTopLevel(plot);
+
+        Assert.True(root is not null, "The flyout did not open, so the plot has no root.");
+        Assert.True(plot.Bounds.Width > 1 && plot.Bounds.Height > 1,
+                    $"The plot was not laid out: {plot.Bounds}");
+
+        return new CurvePlotUnderTest(plot, root!);
+    }
+
+    private sealed record CurvePlotUnderTest(Canvas Plot, Visual Root)
+    {
+        public double Width => Plot.Bounds.Width;
+
+        public double Height => Plot.Bounds.Height;
+
+        /// <summary>Press at one point in the plot and drag to another.</summary>
+        public void Drag(Point from, Point to)
+        {
+            var pointer = new Pointer(1, PointerType.Mouse, isPrimary: true);
+            var held = new PointerPointProperties(RawInputModifiers.LeftMouseButton,
+                                                  PointerUpdateKind.LeftButtonPressed);
+
+            // Events carry a position in the root's coordinates, so the points are stated in the
+            // plot's and converted here. Stating them the other way round would mean every test
+            // knowing where the flyout happened to open.
+            Point InRoot(Point p) => Plot.TranslatePoint(p, Root) ?? p;
+
+            Plot.RaiseEvent(new PointerPressedEventArgs(
+                Plot, pointer, Root, InRoot(from), 0, held, KeyModifiers.None));
+
+            Plot.RaiseEvent(new PointerEventArgs(
+                InputElement.PointerMovedEvent, Plot, pointer, Root, InRoot(to), 0, held,
+                KeyModifiers.None));
+
+            Plot.RaiseEvent(new PointerReleasedEventArgs(
+                Plot, pointer, Root, InRoot(to), 0,
+                new PointerPointProperties(RawInputModifiers.None,
+                                           PointerUpdateKind.LeftButtonReleased),
+                KeyModifiers.None, MouseButton.Left));
+        }
+
+        /// <summary>
+        /// The corner where the pen reads nothing and the brush does nothing, which is where the
+        /// Start node sits on a curve whose range has not been narrowed.
+        /// </summary>
+        /// <remarks>
+        /// 6 is the margin the plot leaves around the unit square, so a node at an extreme is not
+        /// half outside the border. Aiming is all it is for: a node is caught from 22px away, so
+        /// being a pixel or two out still finds it.
+        /// </remarks>
+        public Point BottomLeft => new(6, Height - 6);
+
+        public Point TopRight => new(Width - 6, 6);
+
+        /// <summary>The middle: pressure 0.5 and output 0.5, whatever the margin is.</summary>
+        /// <remarks>
+        /// Deliberately the one point that can be named without repeating the mapping under test.
+        /// A test that worked out where 0.4 lands would agree with a broken mapping that put it in
+        /// the same wrong place; the centre of a symmetric mapping is the centre however it scales.
+        /// </remarks>
+        public Point Centre => new(Width / 2, Height / 2);
+
+        /// <summary>Half way across the plot, and <paramref name="fraction"/> of the way up it.</summary>
+        /// <remarks>
+        /// Horizontally the centre, because that is the one position that can be named without
+        /// repeating the mapping. Vertically wherever is asked for, and for the two nodes that
+        /// read the horizontal that matters: dragged to the exact centre, a node reading the
+        /// wrong axis lands on the same answer as one reading the right one, and a test that only
+        /// ever aims there cannot tell them apart.
+        /// </remarks>
+        public Point Above(double fraction) => new(Width / 2, Height * (1 - fraction));
+    }
+
+    /// <summary>Type a value into a text box and commit it the way Enter does.</summary>
+    private static void TypeInto(TextBox box, string text)
+    {
+        box.Text = text;
+        box.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Source = box,
+            Key = Key.Enter,
+        });
+    }
+
+    [Fact]
+    public void Dragging_the_start_node_moves_where_the_response_begins()
+    {
+        // Three sliders were three numbers to solve for. The nodes sit on the curve itself, so the
+        // thing dragged and the thing changed are the same object -- but only if the press finds
+        // the node and the drag is read on the right axis. Nothing else in the application would
+        // notice if it read the wrong one: the plot would still draw a curve, just not the one
+        // that was asked for.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+
+            var plot = OpenCurvePlot(window);
+            var was = window.CurrentBrush.Curve;
+
+            plot.Drag(plot.BottomLeft, plot.Above(0.75));
+
+            var now = window.CurrentBrush.Curve;
+
+            // Half way across, and three quarters of the way up. Start is where along the pen's
+            // range the response begins, so only the first of those two numbers is an answer to
+            // it: a node reading the height would land on 0.75.
+            Assert.Equal(0.5, now.Start, 2);
+
+            // And only Start. The node is dragged to the middle of the plot, which is half way up
+            // as well as half way across: an End that read the same drag would have moved too.
+            Assert.Equal(was.End, now.End, 6);
+            Assert.Equal(was.Exponent, now.Exponent, 6);
+        });
+    }
+
+    [Fact]
+    public void Dragging_the_end_node_moves_where_the_response_tops_out()
+    {
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+
+            var plot = OpenCurvePlot(window);
+            var was = window.CurrentBrush.Curve;
+
+            plot.Drag(plot.TopRight, plot.Above(0.25));
+
+            var now = window.CurrentBrush.Curve;
+
+            // Half way across, a quarter of the way up. A node reading the height gives 0.25.
+            Assert.Equal(0.5, now.End, 2);
+            Assert.Equal(was.Start, now.Start, 6);
+            Assert.Equal(was.Exponent, now.Exponent, 6);
+        });
+    }
+
+    [Fact]
+    public void Dragging_the_middle_node_shapes_the_response()
+    {
+        // The one that earns the plot. An exponent is a number nobody can picture; the height of
+        // the curve at half pressure is the thing being chosen, and dragging it is saying it
+        // directly.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+
+            var plot = OpenCurvePlot(window);
+
+            // Pulled up: the brush reaches most of its width before the pen is half pressed.
+            plot.Drag(plot.Centre, plot.Above(0.75));
+            double soft = window.CurrentBrush.Curve.Apply(0.5);
+
+            // Pushed down: it holds off instead. Grabbed from three quarters up, which is where
+            // the drag above left it -- a node that does not move to where it was dragged is
+            // grabbed once and then lost, and this is the drag that would find that.
+            plot.Drag(plot.Above(0.75), plot.Above(0.25));
+            double hard = window.CurrentBrush.Curve.Apply(0.5);
+
+            Assert.True(soft > 0.5, $"Dragging up gave {soft:F2} at half pressure");
+            Assert.True(hard < 0.5, $"Dragging down gave {hard:F2} at half pressure");
+
+            // Back to the middle is back to a straight line, and the node has to be findable at
+            // its new height to get there -- a node drawn in the wrong place is grabbed once and
+            // then lost.
+            plot.Drag(plot.Above(0.25), plot.Centre);
+
+            Assert.Equal(1.0, window.CurrentBrush.Curve.Exponent, 2);
+        });
+    }
+
+    [Fact]
+    public void The_two_ends_of_the_range_do_not_cross()
+    {
+        // Start past End is a curve the model does define -- a threshold, nothing below the point
+        // and full strength at it -- but it is not something to arrive at by dragging one node
+        // through another, which leaves a plot whose line runs backwards.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+
+            var plot = OpenCurvePlot(window);
+
+            plot.Drag(plot.BottomLeft, plot.Above(0.75));
+            Assert.Equal(0.5, window.CurrentBrush.Curve.Start, 2);
+
+            // End dragged hard to the left, well past where Start now is.
+            plot.Drag(plot.TopRight, new Point(0, 0));
+
+            var curve = window.CurrentBrush.Curve;
+            Assert.True(curve.End >= curve.Start,
+                        $"End {curve.End:F2} ended up below Start {curve.Start:F2}");
+        });
+    }
+
+    [Fact]
+    public void A_press_on_empty_plot_moves_nothing()
+    {
+        // A plot that jumps when it is clicked is worse than one that waits to be aimed at: there
+        // is no reading of a press in the middle of nowhere that is not a guess at which of three
+        // nodes was wanted.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+
+            var plot = OpenCurvePlot(window);
+            var was = window.CurrentBrush.Curve;
+
+            // The top left corner, which on a default curve is nowhere near any of the three.
+            // The drag then goes somewhere that would change the curve if a node had been taken:
+            // aimed at the centre it would not, because the centre is where the bend already is.
+            var empty = new Point(10, 10);
+            plot.Drag(empty, plot.Above(0.25));
+
+            Assert.Equal(was, window.CurrentBrush.Curve);
+
+            // And the plot is something a pointer can land on at all. Every test here raises
+            // events on the canvas directly, which skips hit-testing: a Canvas with no brush is
+            // not hit-tested, and on one of those a node could only be caught by hitting the 13px
+            // ellipse itself. Nothing else in this file would notice.
+            Assert.Same(plot.Plot, plot.Plot.InputHitTest(empty));
+        });
+    }
+
+    [Fact]
+    public void The_numbers_under_the_plot_can_be_typed_into()
+    {
+        // Dragging is for finding a shape; typing is for setting an exact one, or copying a value
+        // from somewhere else. Both have to reach the same brush, and the boxes have to end up
+        // showing what the brush made of what was typed rather than what was typed.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var exponent = window.GetControl<TextBox>("CurveExponentBox");
+            var start = window.GetControl<TextBox>("CurveStartBox");
+
+            TypeInto(exponent, "2.5");
+            Assert.Equal(2.5, window.CurrentBrush.Curve.Exponent, 6);
+
+            TypeInto(start, "0.3");
+            Assert.Equal(0.3, window.CurrentBrush.Curve.Start, 6);
+
+            // Out of range is clamped by the brush, and the box then says what the brush says --
+            // not what was asked for. A box left showing 40 for a curve of 8 is a lie about the
+            // brush that will draw the next stroke.
+            TypeInto(exponent, "40");
+            Assert.Equal(8.0, window.CurrentBrush.Curve.Exponent, 6);
+            Assert.Equal("8.00", exponent.Text);
+
+            // Nonsense is not an edit.
+            TypeInto(start, "wide");
+            Assert.Equal(0.3, window.CurrentBrush.Curve.Start, 6);
+            Assert.Equal("0.30", start.Text);
         });
     }
 
