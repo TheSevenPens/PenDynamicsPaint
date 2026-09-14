@@ -1,4 +1,7 @@
+using System.Diagnostics;
+
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Themes.Fluent;
 
@@ -57,5 +60,74 @@ public static class OnTheUiThread
         HeadlessUnitTestSession.StartNew(typeof(WindowTestApp));
 
     /// <summary>Run <paramref name="test"/> where Avalonia will let controls be built.</summary>
-    public static void Run(Action test) => Session.Dispatch(test, CancellationToken.None).GetAwaiter().GetResult();
+    /// <remarks>
+    /// Every window the test made is closed afterwards, whether the test passed or threw. See
+    /// <see cref="TestWindows"/> for why that matters more here than tidiness usually does.
+    /// </remarks>
+    public static void Run(Action test) => Session.Dispatch(() =>
+    {
+        try
+        {
+            test();
+        }
+        finally
+        {
+            TestWindows.CloseAll();
+        }
+    }, CancellationToken.None).GetAwaiter().GetResult();
+}
+
+/// <summary>
+/// The windows a test made, so that they can be closed when it ends.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A dropped window is not free. <c>MainWindow</c> opens a Wintab context when it is shown and
+/// gives it back when it closes, and a Wintab context that is never closed is never returned by
+/// the driver: the count climbs and stays climbed until the tablet service is restarted. A run of
+/// this suite showed thirteen windows and closed four of them, so every run cost the machine
+/// twenty-six of the driver's context units, and a morning of runs took it past a thousand. Past
+/// some point the driver stops handing out contexts at all and no application on the machine can
+/// see the pen, which looks like a broken tablet rather than like a test suite.
+/// </para>
+/// <para>
+/// So this is not about tidiness. It is the difference between a suite that can be run all day and
+/// one that quietly breaks the pen on the machine running it.
+/// </para>
+/// <para>
+/// <b>It does not fix the leak.</b> The driver still keeps every context that is not closed
+/// properly, and a killed process still leaks whatever it was holding. This only stops the tests
+/// being the thing that does it.
+/// </para>
+/// </remarks>
+internal static class TestWindows
+{
+    private static readonly List<Window> Open = [];
+
+    /// <summary>Hand back the window, and remember to close it.</summary>
+    internal static T Track<T>(T window) where T : Window
+    {
+        Open.Add(window);
+
+        return window;
+    }
+
+    internal static void CloseAll()
+    {
+        foreach (var window in Open)
+        {
+            // A test that has already failed should not be reported as failing here instead, and
+            // a window that will not close is not worth losing the real result over.
+            try
+            {
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[tests] Could not close a window: {ex.Message}");
+            }
+        }
+
+        Open.Clear();
+    }
 }
