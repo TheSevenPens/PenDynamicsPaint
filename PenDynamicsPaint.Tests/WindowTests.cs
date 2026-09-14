@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using PenDynamicsPaint.Drawing;
@@ -54,6 +55,16 @@ public class WindowTests
                                        PointerUpdateKind.LeftButtonPressed),
             KeyModifiers.None));
     }
+
+    /// <summary>Click a button the way releasing the pointer over it would.</summary>
+    /// <remarks>
+    /// Not the same as <see cref="Press"/>. A button raises Click when the pointer is released
+    /// over it, not when it goes down, so pressing one does nothing at all -- which is how the
+    /// first version of the preset test below came to report that Soft and Default gave the same
+    /// answer. The swatches are different: they handle the press itself.
+    /// </remarks>
+    private static void ClickButton(Button button) =>
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
     [Fact]
     public void The_window_starts_with_an_ink_chosen()
@@ -218,6 +229,63 @@ public class WindowTests
                         $"{state} on {name} moved the panel below it from {restingTop} to {now}");
                 }
             }
+        });
+    }
+
+    [Fact]
+    public void The_new_document_dialog_offers_sizes_and_starts_on_2K()
+    {
+        OnTheUiThread.Run(() =>
+        {
+            var dialog = new NewDocumentWindow();
+
+            var list = dialog.GetControl<ListBox>("SizeList");
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(list.ItemsSource).ToList();
+
+            Assert.Equal(NewDocumentWindow.Sizes.Select(s => s.Name), offered);
+
+            // 2K first and selected: the commonest screen, and a new document four times the area
+            // of the screen it will be looked at on is a surprise rather than a convenience.
+            Assert.Equal(0, list.SelectedIndex);
+            Assert.Equal((1920, 1080),
+                         (NewDocumentWindow.Sizes[0].Width, NewDocumentWindow.Sizes[0].Height));
+
+            // Nothing chosen until it is, so closing it changes no document.
+            Assert.Null(dialog.Chosen);
+        });
+    }
+
+    [Fact]
+    public void The_curve_presets_change_the_brush_they_are_pressed_for()
+    {
+        // Soft has to reach full width earlier than default, and hard later. Stated as an
+        // ordering rather than as three numbers, because the numbers are a judgement and the
+        // ordering is the thing that would be a bug if it were wrong -- a Soft button that made
+        // the brush harder is worse than one tuned to the wrong value.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+
+            double WidthAtHalfPressure(string button)
+            {
+                ClickButton(window.GetControl<Button>(button));
+                return window.CurrentBrush.Curve.Apply(0.5);
+            }
+
+            double soft = WidthAtHalfPressure("CurveSoftButton");
+            double normal = WidthAtHalfPressure("CurveDefaultButton");
+            double hard = WidthAtHalfPressure("CurveHardButton");
+
+            Assert.True(soft > normal, $"Soft gave {soft:F2} at half pressure against {normal:F2}");
+            Assert.True(hard < normal, $"Hard gave {hard:F2} at half pressure against {normal:F2}");
+
+            // And the presets touch only the exponent. Start and End are about a particular tablet
+            // -- where its reading becomes usable and where it saturates -- so a preset that moved
+            // them would undo a calibration rather than change a response.
+            var before = BrushLibrary.Defaults[0].Curve;
+
+            Assert.Equal(before.Start, window.CurrentBrush.Curve.Start, 6);
+            Assert.Equal(before.End, window.CurrentBrush.Curve.End, 6);
         });
     }
 

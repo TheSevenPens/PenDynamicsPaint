@@ -274,9 +274,26 @@
                             <Flyout Placement="RightEdgeAlignedTop" FlyoutPresenterClasses="panel">
                         <StackPanel Width="250" Spacing="3">
 
+                    <!-- Three presets, because most of the time one of them is the answer and
+                         nobody wants to solve for an exponent to get a soft nib. -->
+                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,2">
+                        <Button x:Name="CurveSoftButton" Content="Soft" FontSize="10"
+                                Padding="8,2" Click="CurveSoft_Click" />
+                        <Button x:Name="CurveDefaultButton" Content="Default" FontSize="10"
+                                Padding="8,2" Click="CurveDefault_Click" />
+                        <Button x:Name="CurveHardButton" Content="Hard" FontSize="10"
+                                Padding="8,2" Click="CurveHard_Click" />
+                    </StackPanel>
+
                     <!-- Drawn rather than described. Three numbers say very little about how a
-                         brush will feel, and the shape says it at a glance. -->
-                    <Border Height="78" Background="{DynamicResource Pdl.PlotField}"
+                         brush will feel, and the shape says it at a glance.
+
+                         Square, because both axes are the same quantity on the same scale: what
+                         the pen reports against what the brush does with it. Drawn wide, equal
+                         pressures sat at unequal distances from the diagonal and the curve looked
+                         steeper than it is. -->
+                    <Border Width="218" Height="218" HorizontalAlignment="Left"
+                            Background="{DynamicResource Pdl.PlotField}"
                             BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1"
                             CornerRadius="3" Margin="0,2">
                         <Canvas x:Name="CurvePlot" ClipToBounds="True">
@@ -292,6 +309,15 @@
                                  reference diagonal. -->
                             <Polyline x:Name="CurveLine" Stroke="{DynamicResource Pdl.CurveInk}"
                                       StrokeThickness="2" />
+
+                            <!-- Where the pen is on the curve, right now. The numbers say what the
+                                 curve is; this says what it is doing to the pen in your hand, which
+                                 is the thing that is hard to picture and easy to feel. -->
+                            <Ellipse x:Name="CurveDot" Width="9" Height="9" IsVisible="False"
+                                     Fill="{DynamicResource Pdl.CurveInk}" />
+                            <Line x:Name="CurveDotDrop" Stroke="{DynamicResource Pdl.CurveInk}"
+                                  StrokeThickness="1" StrokeDashArray="2,2" Opacity="0.5"
+                                  IsVisible="False" />
                         </Canvas>
                     </Border>
 
@@ -393,11 +419,15 @@
                 <TextBlock DockPanel.Dock="Top" Text="Layers" FontSize="12" FontWeight="SemiBold"
                            Margin="0,0,0,8" Foreground="{DynamicResource Pdl.GroupLabel}" />
 
-                <!-- Add is the only button. Everything else that can be done to a layer is done
-                     to a particular layer, so it belongs on that layer rather than on a row of
-                     buttons acting at a distance on whichever one happens to be selected. Add is
-                     the exception because it acts on the stack rather than on a layer. -->
-                <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,10,0,0">
+                <!-- Above the list, not below it. The list grows downwards as layers are added,
+                     so anything under it moves every time, and these are the two controls
+                     reached for most, which should not be the two that wander.
+
+                     Add is the only button. Everything else that can be done to a layer is done to
+                     a particular layer, so it belongs on that layer rather than on a row of buttons
+                     acting at a distance on whichever one happens to be selected. Add is the
+                     exception because it acts on the stack rather than on a layer. -->
+                <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,10">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <Button x:Name="AddLayerButton" Content="Add layer" FontSize="11"
                                 Padding="8,4" Click="AddLayer_Click" />

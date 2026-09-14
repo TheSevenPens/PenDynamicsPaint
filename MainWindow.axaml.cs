@@ -51,6 +51,18 @@ public partial class MainWindow : Window
     /// window any more: this is which driver the tablet is read through and it is set once.
     /// </remarks>
     private InputApi? _api;
+
+    /// <summary>The last pressure the pen reported, for the dot on the curve.</summary>
+    private double _livePressure;
+
+    /// <summary>When that reading arrived, so a stale one can be let go of.</summary>
+    /// <remarks>
+    /// A pen held still sends nothing, so the reading cannot simply be cleared on a tick that
+    /// drains no points -- the dot would blink out whenever the hand paused. A pen lifted out of
+    /// range also sends nothing, and then the dot would stick at whatever it last read. A timeout
+    /// tells the two apart: longer than a pause between packets, shorter than anyone would notice.
+    /// </remarks>
+    private readonly System.Diagnostics.Stopwatch _pressureAge = System.Diagnostics.Stopwatch.StartNew();
     private PaintSession _paint = null!;
     private bool _fitted;
 
@@ -805,12 +817,15 @@ public partial class MainWindow : Window
 
     // -- Menu -----------------------------------------------------
 
-    private void New_Click(object? sender, RoutedEventArgs e)
+    private async void New_Click(object? sender, RoutedEventArgs e)
     {
-        // A fresh document the same size as this one. Asking what size wants a dialog with a
-        // width, a height and a set of presets, which is its own piece of work.
-        AdoptDocument(new PaintSession(_paint.Width, _paint.Height), from: null);
-        StatusLabel.Text = "New document";
+        var dialog = new NewDocumentWindow();
+        await dialog.ShowDialog(this);
+
+        if (dialog.Chosen is not { } size) return;
+
+        AdoptDocument(new PaintSession(size.Width, size.Height), from: null);
+        StatusLabel.Text = $"New document, {size.Width} x {size.Height}";
     }
 
     private async void SaveAs_Click(object? sender, RoutedEventArgs e)
@@ -1105,6 +1120,69 @@ public partial class MainWindow : Window
     /// <c>Start</c> removes and the flat run at the right is where <c>End</c> has saturated -- both
     /// are the point of those two numbers and neither is obvious from a percentage.
     /// </remarks>
+    /// <summary>The curves on the three preset buttons.</summary>
+    /// <remarks>
+    /// <para>
+    /// Soft reaches full width early, so a light hand still lays a full mark and the brush feels
+    /// eager. Hard holds off, so width arrives only when the pen is genuinely leaned on and the
+    /// stroke stays fine until then. Default is the straight line between them: what the pen
+    /// reports is what the brush does.
+    /// </para>
+    /// <para>
+    /// Both ends of the range are left alone. Start and End are about a particular tablet -- where
+    /// its reading becomes usable and where it saturates -- and not about how a brush should feel,
+    /// so a preset that moved them would undo a calibration rather than change a response.
+    /// </para>
+    /// </remarks>
+    private void ApplyCurvePreset(double exponent)
+    {
+        EditBrush(b => b with { Curve = b.Curve with { Exponent = exponent } });
+    }
+
+    private void CurveSoft_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(0.55);
+
+    private void CurveDefault_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(1.0);
+
+    private void CurveHard_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(2.2);
+
+    /// <summary>
+    /// Put the dot where the pen is on the curve, or take it away when the pen is off the tablet.
+    /// </summary>
+    /// <remarks>
+    /// Drawn from the raw reading, because that is the axis the curve is drawn against: the dot
+    /// sits at the pressure the pen reported, at the height the brush will use. Reading the
+    /// processed value back would put the dot on the diagonal whatever the curve was doing.
+    /// </remarks>
+    private void ShowCurveDot(double rawPressure)
+    {
+        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
+
+        if (rawPressure <= 0 || w <= 1 || h <= 1)
+        {
+            CurveDot.IsVisible = false;
+            CurveDotDrop.IsVisible = false;
+            return;
+        }
+
+        const double pad = 6;
+        double plotW = w - 2 * pad, plotH = h - 2 * pad;
+
+        double x = Math.Clamp(rawPressure, 0, 1);
+        double y = Math.Clamp(Brush.Curve.Apply(x), 0, 1);
+
+        double px = pad + x * plotW;
+        double py = h - pad - y * plotH;
+
+        Canvas.SetLeft(CurveDot, px - CurveDot.Width / 2);
+        Canvas.SetTop(CurveDot, py - CurveDot.Height / 2);
+        CurveDot.IsVisible = true;
+
+        // Down to the axis, so the reading can be read off the bottom as well as seen on the curve.
+        CurveDotDrop.StartPoint = new Point(px, py);
+        CurveDotDrop.EndPoint = new Point(px, h - pad);
+        CurveDotDrop.IsVisible = true;
+    }
+
     private void DrawCurve(PressureCurve curve)
     {
         double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
@@ -1176,6 +1254,11 @@ public partial class MainWindow : Window
         // there is nothing to drain. It costs a comparison when nothing has changed.
         PaintView.PresentIfNeeded();
 
+        // Also before it, and for the same reason: the dot has to go out when the pen leaves,
+        // which is a tick with nothing on it.
+        if (_pressureAge.ElapsedMilliseconds > 150) _livePressure = 0;
+        ShowCurveDot(_livePressure);
+
         if (_penSession is null) return;
 
         var points = _penSession.DrainPoints();
@@ -1233,6 +1316,11 @@ public partial class MainWindow : Window
             var (docX, docY) = PaintView.ToDocument(inViewport);
 
             double pressure = maxPressure > 0 ? (double)pt.Pressure / maxPressure : 0;
+
+            // Kept for the curve plot, which shows where the pen is on it. Recorded here, where
+            // the reading is raw: this is the axis the curve is drawn against.
+            _livePressure = pressure;
+            _pressureAge.Restart();
 
             // What the pen reported, untouched. The brush's own curve is applied inside the
             // session, which is what makes a stroke keep the response it was drawn with -- there is
