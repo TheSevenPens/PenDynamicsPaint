@@ -320,7 +320,20 @@ public class WindowTests
             var combo = window.GetControl<ComboBox>("BrushCombo");
             var offered = Assert.IsAssignableFrom<IEnumerable<string>>(combo.ItemsSource).ToList();
 
-            Assert.Equal(BrushLibrary.Defaults.Select(b => b.Name), offered);
+            // Each entry says what kind of brush it is, because that is what decides which
+            // settings the brush even has.
+            Assert.Equal(BrushLibrary.Defaults.Count, offered.Count);
+
+            foreach (var (brush, shown) in BrushLibrary.Defaults.Zip(offered))
+            {
+                Assert.StartsWith(brush.Name, shown);
+                Assert.Contains(brush.Engine switch
+                {
+                    BrushEngineKind.Dabs => "Dabs",
+                    BrushEngineKind.MyPaint => "MyPaint",
+                    _ => "Taper",
+                }, shown);
+            }
         });
     }
 
@@ -339,6 +352,82 @@ public class WindowTests
                 Assert.Equal(BrushLibrary.Defaults[i].Name, window.CurrentBrush.Name);
                 Assert.Equal(BrushLibrary.Defaults[i].Engine, window.CurrentBrush.Engine);
             }
+        });
+    }
+
+    [Fact]
+    public void A_brushs_engine_cannot_be_changed_out_from_under_it()
+    {
+        // The engine decides which settings a brush has, so offering it as one of those settings
+        // read as though any brush could be switched to any engine. It could, and the result was
+        // misleading in both directions: a taper switched to MyPaint quietly became a default round
+        // dab with nothing of the original in it, and a MyPaint brush switched to taper drew from
+        // settings its file had never set.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+
+            Assert.Null(window.FindControl<ComboBox>("EngineCombo"));
+        });
+    }
+
+    [Fact]
+    public void A_new_brush_is_added_rather_than_replacing_the_one_in_use()
+    {
+        // Making a brush used to mean turning the selected one into something else -- loading a
+        // .myb overwrote whichever brush was in front of the pen, name and all. A new brush is a
+        // new entry, and the one that was there is still there.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var combo = window.GetControl<ComboBox>("BrushCombo");
+
+            combo.SelectedIndex = 0;
+            var wasFirst = window.CurrentBrush;
+            int before = BrushLibrary.Defaults.Count;
+
+            window.NewBrushForTest(BrushEngineKind.Dabs);
+
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(combo.ItemsSource).ToList();
+
+            Assert.Equal(before + 1, offered.Count);
+            Assert.Equal(BrushEngineKind.Dabs, window.CurrentBrush.Engine);
+
+            // And the brush that was selected is untouched, under its own name.
+            combo.SelectedIndex = 0;
+            Assert.Equal(wasFirst.Name, window.CurrentBrush.Name);
+            Assert.Equal(wasFirst.Engine, window.CurrentBrush.Engine);
+        });
+    }
+
+    [Fact]
+    public void A_MyPaint_brush_hides_the_settings_it_does_not_have()
+    {
+        // A MyPaint brush brings its own size, opacity and pressure response, all varying per dab.
+        // Those rows used to be disabled, which reads as something broken or as a setting that
+        // would work if only the right thing were selected. Absent reads as not applicable.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var combo = window.GetControl<ComboBox>("BrushCombo");
+
+            int native = BrushLibrary.Defaults
+                .Select((b, i) => (b, i)).First(x => x.b.Engine == BrushEngineKind.Taper).i;
+            int mypaint = BrushLibrary.Defaults
+                .Select((b, i) => (b, i)).First(x => x.b.Engine == BrushEngineKind.MyPaint).i;
+
+            combo.SelectedIndex = native;
+            Assert.True(window.GetControl<Border>("SizeRow").IsVisible);
+            Assert.False(window.GetControl<Border>("MyPaintRow").IsVisible);
+
+            combo.SelectedIndex = mypaint;
+            Assert.False(window.GetControl<Border>("SizeRow").IsVisible);
+            Assert.False(window.GetControl<Border>("OpacityRow").IsVisible);
+            Assert.False(window.GetControl<Border>("DrivesRow").IsVisible);
+            Assert.False(window.GetControl<Button>("CurveSection").IsVisible);
+
+            // And it says which file it is, in their place.
+            Assert.True(window.GetControl<Border>("MyPaintRow").IsVisible);
         });
     }
 

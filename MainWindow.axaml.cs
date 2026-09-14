@@ -621,7 +621,12 @@ public partial class MainWindow : Window
     /// already set on it are kept: those belong to how the pen is read, and a brush file has
     /// nothing to say about them.
     /// </remarks>
-    private async void LoadMyPaintBrush_Click(object? sender, RoutedEventArgs e)
+    /// <summary>Ask for a <c>.myb</c> and read it, or null if there is nothing to read.</summary>
+    /// <remarks>
+    /// Shared by the two things that want one, which are not the same thing: changing which file a
+    /// MyPaint brush is, and making a new brush out of a file.
+    /// </remarks>
+    private async Task<MyPaintBrush?> PickMyPaintBrush()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -633,7 +638,7 @@ public partial class MainWindow : Window
             ],
         });
 
-        if (files.Count == 0) return;
+        if (files.Count == 0) return null;
 
         var file = files[0];
         try
@@ -644,19 +649,11 @@ public partial class MainWindow : Window
             string name = Path.GetFileNameWithoutExtension(file.Name);
             var brush = MyPaintBrush.Parse(await reader.ReadToEndAsync(), name);
 
-            EditBrush(b => b with
-            {
-                Name = name,
-                Engine = BrushEngineKind.MyPaint,
-                MyPaint = brush,
-            });
-
-            BrushCombo.ItemsSource = _brushes.Select(b => b.Name).ToList();
-            ShowBrush();
-
             StatusLabel.Text = brush.Ignored.Count == 0
                 ? $"{name}: loaded"
                 : $"{name}: loaded, {brush.Ignored.Count} setting(s) not acted on";
+
+            return brush;
         }
         catch (Exception error) when (error is FormatException or IOException)
         {
@@ -664,7 +661,121 @@ public partial class MainWindow : Window
             // about, and the two reasons -- the old text format, and a file that cannot be read --
             // are both things the user can do something about.
             StatusLabel.Text = $"{file.Name}: {error.Message}";
+            return null;
         }
+    }
+
+    /// <summary>Put a different file behind the MyPaint brush that is selected.</summary>
+    private async void LoadMyPaintBrush_Click(object? sender, RoutedEventArgs e)
+    {
+        if (await PickMyPaintBrush() is not { } loaded) return;
+
+        EditBrush(b => b with { Name = loaded.Name, MyPaint = loaded });
+
+        RefreshBrushList();
+        ShowBrush();
+    }
+
+    /// <summary>How a brush is named in the picker: its own name and what kind it is.</summary>
+    /// <remarks>
+    /// The kind decides which settings a brush even has, and it used to be readable only by opening
+    /// the panel and noticing which controls had gone. A list of bare names says nothing about why
+    /// two entries offer different things.
+    /// </remarks>
+    private static string Describe(BrushSettings brush) => $"{brush.Name}  ({Kind(brush.Engine)})";
+
+    private static string Kind(BrushEngineKind engine) => engine switch
+    {
+        BrushEngineKind.Dabs => "Dabs",
+        BrushEngineKind.MyPaint => "MyPaint",
+        _ => "Taper",
+    };
+
+    /// <summary>Rebuild the picker without letting it change which brush is selected.</summary>
+    /// <remarks>
+    /// Assigning ItemsSource resets the selection, which raises SelectionChanged, which sets
+    /// _brushIndex from whatever the combo has just decided -- so refreshing the list while
+    /// pointing at a new brush landed back on the first one, and adding a brush selected something
+    /// else. The flag is the same one the rest of the panel uses to tell its own writes from a
+    /// person's.
+    /// </remarks>
+    private void RefreshBrushList()
+    {
+        _syncingBrush = true;
+
+        BrushCombo.ItemsSource = _brushes.Select(Describe).ToList();
+        BrushCombo.SelectedIndex = _brushIndex;
+
+        _syncingBrush = false;
+    }
+
+    /// <summary>Add a brush to the set and put it in front of the pen.</summary>
+    private void AddBrush(BrushSettings brush)
+    {
+        _brushes.Add(brush);
+        _brushIndex = _brushes.Count - 1;
+
+        RefreshBrushList();
+        ShowBrush();
+
+        StatusLabel.Text = $"New brush: {brush.Name}";
+    }
+
+    /// <summary>Make a brush of the given kind, for a test that needs one added.</summary>
+    /// <remarks>
+    /// The menu items are what a person uses; this is the same call without the menu, so a test
+    /// can check that adding a brush adds one rather than replacing what was selected.
+    /// </remarks>
+    internal void NewBrushForTest(BrushEngineKind engine) =>
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName($"{Kind(engine)} brush"),
+            Engine = engine,
+            Size = 24,
+        });
+
+    /// <summary>A name not already taken, so two brushes are never the same row twice.</summary>
+    private string UnusedName(string stem)
+    {
+        if (_brushes.All(b => b.Name != stem)) return stem;
+
+        for (int n = 2; ; n++)
+        {
+            string candidate = $"{stem} {n}";
+            if (_brushes.All(b => b.Name != candidate)) return candidate;
+        }
+    }
+
+    private void NewTaperBrush_Click(object? sender, RoutedEventArgs e) =>
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName("Taper brush"),
+            Engine = BrushEngineKind.Taper,
+            Size = 24,
+            Interpolation = StrokeInterpolation.Curved,
+        });
+
+    private void NewDabsBrush_Click(object? sender, RoutedEventArgs e) =>
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName("Dabs brush"),
+            Engine = BrushEngineKind.Dabs,
+            Size = 24,
+            Spacing = 0.25,
+        });
+
+    /// <summary>Make a new brush out of a <c>.myb</c>, rather than turning a brush into one.</summary>
+    private async void NewMyPaintBrush_Click(object? sender, RoutedEventArgs e)
+    {
+        if (await PickMyPaintBrush() is not { } loaded) return;
+
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName(loaded.Name),
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = loaded,
+            Interpolation = StrokeInterpolation.Curved,
+        });
     }
 
     // -- The document on disk ------------------------------------
@@ -946,7 +1057,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private void WireBrushPanel()
     {
-        BrushCombo.ItemsSource = _brushes.Select(b => b.Name).ToList();
+        BrushCombo.ItemsSource = _brushes.Select(Describe).ToList();
         BrushCombo.SelectedIndex = 0;
         BrushCombo.SelectionChanged += (_, _) =>
         {
@@ -961,12 +1072,6 @@ public partial class MainWindow : Window
             Compositing = CompositingCombo.SelectedIndex == 1
                 ? StrokeCompositing.Direct
                 : StrokeCompositing.Wash,
-        });
-
-        EngineCombo.ItemsSource = new[] { "Taper", "Dabs", "MyPaint" };
-        EngineCombo.SelectionChanged += (_, _) => EditBrush(b => b with
-        {
-            Engine = (BrushEngineKind)Math.Max(0, EngineCombo.SelectedIndex),
         });
 
         InterpolationCombo.ItemsSource = new[] { "Straight", "Curved" };
@@ -1049,7 +1154,6 @@ public partial class MainWindow : Window
 
         var b = Brush;
         BrushCombo.SelectedIndex = _brushIndex;
-        EngineCombo.SelectedIndex = (int)b.Engine;
         InterpolationCombo.SelectedIndex = b.Interpolation == StrokeInterpolation.Curved ? 1 : 0;
         CompositingCombo.SelectedIndex = b.Compositing == StrokeCompositing.Direct ? 1 : 0;
         DrivesCombo.SelectedIndex = (int)b.PressureDrives;
@@ -1060,10 +1164,14 @@ public partial class MainWindow : Window
         bool mypaint = b.Engine == BrushEngineKind.MyPaint;
 
         // A MyPaint brush brings its own size, opacity, softness, spacing and pressure response,
-        // all of them varying per dab. Leaving the sliders live would offer edits that the next
-        // dab overwrites, so they are disabled and the brush file's name stands in their place.
-        SizeRow.IsEnabled = OpacityRow.IsEnabled = DrivesRow.IsEnabled = !mypaint;
-        CurveSection.IsEnabled = !mypaint;
+        // all of them varying per dab, so none of those controls applies to one.
+        //
+        // Hidden rather than disabled. Four greyed-out rows read as something broken, or as
+        // settings that would work if only the right thing were selected; absent ones read as not
+        // applicable, which is what they are. It also makes the panel shorter for exactly the
+        // brushes that need the room.
+        SizeRow.IsVisible = OpacityRow.IsVisible = DrivesRow.IsVisible = !mypaint;
+        CurveSection.IsVisible = !mypaint;
         MyPaintRow.IsVisible = mypaint;
         MyPaintLabel.Text = b.MyPaint is { } file
             ? file.Ignored.Count == 0 ? file.Name : $"{file.Name} ({file.Ignored.Count} unused)"

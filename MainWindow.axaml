@@ -139,6 +139,19 @@
                 <MenuItem Header="Lower" Click="LowerLayer_Click" />
             </MenuItem>
 
+            <!-- Where a brush's engine is chosen: when the brush is made. It used to be a combo
+                 box among the settings, which read as though any brush could be switched to any
+                 engine. It could, and the result was misleading in both directions: a taper
+                 switched to MyPaint quietly became a default round dab with nothing of the original
+                 in it, and a MyPaint brush switched to taper drew from settings its file had never
+                 set. A brush is its engine rather than a brush that has one. -->
+            <MenuItem Header="_Brush">
+                <MenuItem Header="New _taper brush" Click="NewTaperBrush_Click" />
+                <MenuItem Header="New _dabs brush" Click="NewDabsBrush_Click" />
+                <Separator />
+                <MenuItem Header="Load _MyPaint brush..." Click="NewMyPaintBrush_Click" />
+            </MenuItem>
+
             <MenuItem Header="_Tools">
                 <MenuItem Header="_Options..." Click="Options_Click" />
             </MenuItem>
@@ -177,15 +190,6 @@
 
                     <ComboBox x:Name="BrushCombo" HorizontalAlignment="Stretch" Height="30"
                               Margin="0,0,0,4" />
-
-                    <Border Classes="row">
-                        <Grid ColumnDefinitions="58,*">
-                            <TextBlock Grid.Column="0" Classes="name" Text="Engine" />
-                            <ComboBox Grid.Column="1" x:Name="EngineCombo" Height="24"
-                                      FontSize="11" Padding="6,0" VerticalAlignment="Center"
-                                      HorizontalAlignment="Stretch" />
-                        </Grid>
-                    </Border>
 
                     <!-- What the ink does between two samples. Next to the engine because the two
                          together decide the shape of a mark: one lays it down, the other says
@@ -232,7 +236,9 @@
                             <TextBlock Grid.Column="1" x:Name="MyPaintLabel" Classes="value"
                                        TextAlignment="Left" VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" />
-                            <Button Grid.Column="2" Content="Load" FontSize="10" Padding="6,1"
+                            <!-- Changes which file this brush is. Brush > Load MyPaint brush
+                                 is the other thing, and that one makes a new brush. -->
+                            <Button Grid.Column="2" Content="Change..." FontSize="10" Padding="6,1"
                                     VerticalAlignment="Center" Click="LoadMyPaintBrush_Click" />
                         </Grid>
                     </Border>
