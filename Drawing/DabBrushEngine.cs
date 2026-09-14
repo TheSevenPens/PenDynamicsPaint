@@ -62,7 +62,7 @@ public sealed class DabBrushEngine : IBrushEngine
 
     /// <inheritdoc />
     public void DrawSegment(SKCanvas canvas, in StrokeSample from, in StrokeSample to,
-        BrushSettings brush, SKColor color, PressureChannel channel)
+        BrushSettings brush, SKColor color)
     {
         LastSegmentBounds = SKRect.Empty;
 
@@ -70,8 +70,8 @@ public sealed class DabBrushEngine : IBrushEngine
         double dx = to.Position.X - x0, dy = to.Position.Y - y0;
         double length = Math.Sqrt(dx * dx + dy * dy);
 
-        double pressureFrom = from.PressureFor(channel);
-        double pressureTo = to.PressureFor(channel);
+        double pressureFrom = from.RawPressure;
+        double pressureTo = to.RawPressure;
 
         // Captured rather than recomputed inside the loop body: the walk asks for the spacing at a
         // position before it decides where the mark goes, and the two have to agree about pressure.

@@ -132,7 +132,7 @@ public partial class MainWindow : Window
         // Canvas has some. The first pass is where that happens.
         CurvePlot.PropertyChanged += (_, e) =>
         {
-            if (e.Property.Name == "Bounds") DrawCurve(Brush.Curve);
+            if (e.Property.Name == "Bounds") DrawCurve(Brush.SizeDynamics.Pressure);
         };
 
         WireBrushPanel();
@@ -1103,11 +1103,26 @@ public partial class MainWindow : Window
                 : StrokeInterpolation.Straight,
         });
 
-        DrivesCombo.ItemsSource = new[] { "Size", "Opacity", "Both" };
-        DrivesCombo.SelectionChanged += (_, _) => EditBrush(b => b with
+        // All that is left of the Size / Opacity / Both combo, until opacity gets a dynamics
+        // button of its own. Ticking it turns pressure on for opacity and leaves whatever curve
+        // the brush was built with; clearing it takes pressure off and keeps the curve, so the two
+        // are not one-way.
+        OpacityPressureCheck.IsCheckedChanged += (_, _) => EditBrush(b => b with
         {
-            PressureDrives = (PressureControl)Math.Max(0, DrivesCombo.SelectedIndex),
+            OpacityDynamics = b.OpacityDynamics with
+            {
+                Pressure = b.OpacityDynamics.Pressure with
+                {
+                    Enabled = OpacityPressureCheck.IsChecked == true,
+                },
+            },
         });
+
+        SizePressureCheck.IsCheckedChanged += (_, _) =>
+            EditSizePressure(i => i with { Enabled = SizePressureCheck.IsChecked == true });
+
+        OnSlider(SizeMinimumSlider,
+                 () => EditSizePressure(i => i with { Minimum = SizeMinimumSlider.Value / 100.0 }));
 
         OnSlider(SizeSlider, () => EditBrush(b => b with { Size = SizeSlider.Value }));
         OnSlider(SpacingSlider, () => EditBrush(b => b with { Spacing = SpacingSlider.Value }));
@@ -1126,9 +1141,9 @@ public partial class MainWindow : Window
             e.Pointer.Capture(null);
         };
 
-        OnNumberBox(CurveStartBox, (v, b) => b with { Curve = b.Curve with { Start = v } });
-        OnNumberBox(CurveEndBox, (v, b) => b with { Curve = b.Curve with { End = v } });
-        OnNumberBox(CurveExponentBox, (v, b) => b with { Curve = b.Curve with { Exponent = v } });
+        OnNumberBox(CurveStartBox, v => EditSizeCurve(c => c with { Start = v }));
+        OnNumberBox(CurveEndBox, v => EditSizeCurve(c => c with { End = v }));
+        OnNumberBox(CurveExponentBox, v => EditSizeCurve(c => c with { Exponent = v }));
 
         OnSlider(PositionSmoothingSlider, () => EditBrush(b => b with
         {
@@ -1157,6 +1172,21 @@ public partial class MainWindow : Window
             if (e.Property.Name == "Value") changed();
         };
 
+    /// <summary>Change what pressure does to the size of the mark.</summary>
+    /// <remarks>
+    /// Three levels down -- brush, dynamics, input -- and every control in the size flyout has to
+    /// walk them, so they are walked once here. Written out at each call site instead, the nesting
+    /// was the whole line and the edit was a detail inside it.
+    /// </remarks>
+    private void EditSizePressure(Func<DynamicInput, DynamicInput> edit) =>
+        EditBrush(b => b with
+        {
+            SizeDynamics = b.SizeDynamics with { Pressure = edit(b.SizeDynamics.Pressure) },
+        });
+
+    private void EditSizeCurve(Func<PressureCurve, PressureCurve> edit) =>
+        EditSizePressure(i => i with { Curve = edit(i.Curve) });
+
     /// <summary>Apply one edit to the selected brush, then show what it became.</summary>
     /// <remarks>
     /// Showing it afterwards is not redundant: the record clamps what it is given, so a slider can
@@ -1180,7 +1210,6 @@ public partial class MainWindow : Window
         BrushCombo.SelectedIndex = _brushIndex;
         InterpolationCombo.SelectedIndex = b.Interpolation == StrokeInterpolation.Curved ? 1 : 0;
         CompositingCombo.SelectedIndex = b.Compositing == StrokeCompositing.Direct ? 1 : 0;
-        DrivesCombo.SelectedIndex = (int)b.PressureDrives;
 
         SizeSlider.Value = b.Size;
         SizeLabel.Text = $"{b.Size:F0} px";
@@ -1194,8 +1223,7 @@ public partial class MainWindow : Window
         // settings that would work if only the right thing were selected; absent ones read as not
         // applicable, which is what they are. It also makes the panel shorter for exactly the
         // brushes that need the room.
-        SizeRow.IsVisible = OpacityRow.IsVisible = DrivesRow.IsVisible = !mypaint;
-        CurveSection.IsVisible = !mypaint;
+        SizeRow.IsVisible = OpacityRow.IsVisible = OpacityPressureRow.IsVisible = !mypaint;
         MyPaintRow.IsVisible = mypaint;
         MyPaintLabel.Text = b.MyPaint is { } file
             ? file.Ignored.Count == 0 ? file.Name : $"{file.Name} ({file.Ignored.Count} unused)"
@@ -1208,9 +1236,25 @@ public partial class MainWindow : Window
         BrushOpacitySlider.Value = b.Opacity * 100;
         BrushOpacityLabel.Text = $"{b.Opacity * 100:F0}%";
 
-        CurveStartBox.Text = $"{b.Curve.Start:F2}";
-        CurveEndBox.Text = $"{b.Curve.End:F2}";
-        CurveExponentBox.Text = $"{b.Curve.Exponent:F2}";
+        var size = b.SizeDynamics.Pressure;
+
+        SizePressureCheck.IsChecked = size.Enabled;
+        SizePressurePanel.IsVisible = size.Enabled;
+        SizeMinimumSlider.Value = size.Minimum * 100;
+        SizeMinimumLabel.Text = $"{size.Minimum * 100:F0}%";
+
+        CurveStartBox.Text = $"{size.Curve.Start:F2}";
+        CurveEndBox.Text = $"{size.Curve.End:F2}";
+        CurveExponentBox.Text = $"{size.Curve.Exponent:F2}";
+
+        OpacityPressureCheck.IsChecked = b.OpacityDynamics.Pressure.Enabled;
+
+        // The button says what is behind it without being opened: a circle with a line through it
+        // for a size the pen does not touch, ticked rows for one it does. Clip Studio's, and the
+        // reason it is worth copying is that a dynamics panel is otherwise invisible -- a brush
+        // that behaves oddly gives no hint that there is a panel to go and look at.
+        SizeDynamicsOn.IsVisible = b.SizeDynamics.Count > 0;
+        SizeDynamicsOff.IsVisible = !SizeDynamicsOn.IsVisible;
 
         PositionSmoothingSlider.Value = b.Smoothing.Position;
         PositionSmoothingLabel.Text = Reach(b.Smoothing.Position);
@@ -1224,9 +1268,8 @@ public partial class MainWindow : Window
         // Tail only changes how the filter lets go, so it has nothing to do when neither runs.
         TailRow.IsEnabled = b.Smoothing.IsEnabled;
 
-        // On the headers, so a folded section still says what it holds. Without this, collapsing
-        // them would trade height for having to open each one to see where it was set.
-        CurveSummary.Text = $"{b.Curve.Start:F2} / {b.Curve.End:F2} / {b.Curve.Exponent:F2}";
+        // On the header, so a closed section still says what it holds. Without this, folding it
+        // away would trade height for having to open it to see where it was set.
         SmoothingSummary.Text = b.Smoothing.IsEnabled
             ? $"{Reach(b.Smoothing.Position)} / {Reach(b.Smoothing.Pressure)} / " +
               $"{Reach(b.Smoothing.Tilt)}"
@@ -1234,7 +1277,7 @@ public partial class MainWindow : Window
 
         _syncingBrush = false;
 
-        DrawCurve(b.Curve);
+        DrawCurve(size);
     }
 
     /// <summary>A reach in document units, or the word for not filtering at all.</summary>
@@ -1270,10 +1313,8 @@ public partial class MainWindow : Window
     /// two different brushes. A preset has to be somewhere you can get back to.
     /// </para>
     /// </remarks>
-    private void ApplyCurvePreset(double exponent)
-    {
-        EditBrush(b => b with { Curve = new PressureCurve(0.0, 1.0, exponent) });
-    }
+    private void ApplyCurvePreset(double exponent) =>
+        EditSizeCurve(_ => new PressureCurve(0.0, 1.0, exponent));
 
     private void CurveSoft_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(0.55);
 
@@ -1285,11 +1326,15 @@ public partial class MainWindow : Window
     /// Put the dot where the pen is on the curve, or take it away when the pen is off the tablet.
     /// </summary>
     /// <remarks>
-    /// Drawn from the raw reading, because that is the axis the curve is drawn against: the dot
-    /// sits at the pressure the pen reported, at the height the brush will use. Reading the
-    /// processed value back would put the dot on the diagonal whatever the curve was doing.
+    /// Drawn from the raw reading, because that is the axis the plot is drawn against: the dot
+    /// sits at the pressure the pen reported, at the height the brush will use. Reading back what
+    /// the brush made of it would put the dot on the diagonal whatever the curve was doing.
     /// </remarks>
-    private void ShowCurveDot(double rawPressure)
+    /// <remarks>
+    /// Internal because a test can reach it and cannot reach a pen: the only caller in the
+    /// application is the render tick, fed by a tablet.
+    /// </remarks>
+    internal void ShowCurveDot(double rawPressure)
     {
         if (rawPressure <= 0 || !PlotIsLaidOut)
         {
@@ -1299,7 +1344,7 @@ public partial class MainWindow : Window
         }
 
         double x = Math.Clamp(rawPressure, 0, 1);
-        double y = Math.Clamp(Brush.Curve.Apply(x), 0, 1);
+        double y = Math.Clamp(Brush.SizeDynamics.Pressure.Apply(x), 0, 1);
         var p = CurvePoint(x, y);
 
         Canvas.SetLeft(CurveDot, p.X - CurveDot.Width / 2);
@@ -1345,16 +1390,23 @@ public partial class MainWindow : Window
 
     /// <summary>Where a node sits on the unit square.</summary>
     /// <remarks>
-    /// All three are points the curve itself passes through, which is the whole idea: the response
-    /// starts at Start, reaches full at End, and halfway between the two it is at a half raised to
-    /// the exponent. None of them is a handle floating beside the line.
+    /// All three are points the drawn response passes through, which is the whole idea: it begins
+    /// at Start, reaches full at End, and halfway between the two it is at a half raised to the
+    /// exponent. None of them is a handle floating beside the line. The floor lifts the whole
+    /// shape, so the Start node sits at the minimum rather than on the axis.
     /// </remarks>
-    private static (double X, double Y) NodeAt(PressureCurve curve, CurveNode node) => node switch
+    private static (double X, double Y) NodeAt(DynamicInput input, CurveNode node)
     {
-        CurveNode.Start => (curve.Start, 0),
-        CurveNode.End => (curve.End, 1),
-        _ => ((curve.Start + curve.End) / 2, Math.Pow(0.5, curve.Exponent)),
-    };
+        var curve = input.Curve;
+
+        return node switch
+        {
+            CurveNode.Start => (curve.Start, input.Minimum),
+            CurveNode.End => (curve.End, 1),
+            _ => ((curve.Start + curve.End) / 2,
+                  input.Minimum + (1 - input.Minimum) * Math.Pow(0.5, curve.Exponent)),
+        };
+    }
 
     /// <summary>What dragging one node to a point does to the curve.</summary>
     /// <remarks>
@@ -1369,15 +1421,27 @@ public partial class MainWindow : Window
     /// range, where the output is a half raised to the exponent whatever that range is, so the
     /// exponent that puts it at a given height is the log of the height over the log of a half.
     /// Pulled up, the brush comes on early; pushed down, it holds off until the pen is leaned on.
+    /// The floor is divided out first, since the height dragged to is a height on the drawn
+    /// response and the exponent shapes only the part above the floor.
     /// </para>
     /// </remarks>
-    private static PressureCurve Dragged(PressureCurve curve, CurveNode node, double x, double y) =>
-        node switch
-        {
-            CurveNode.Start => curve with { Start = Math.Min(x, curve.End) },
-            CurveNode.End => curve with { End = Math.Max(x, curve.Start) },
-            _ => curve with { Exponent = Math.Log(Math.Clamp(y, 0.02, 0.98)) / Math.Log(0.5) },
-        };
+    private static DynamicInput Dragged(DynamicInput input, CurveNode node, double x, double y)
+    {
+        var curve = input.Curve;
+
+        if (node == CurveNode.Start)
+            return input with { Curve = curve with { Start = Math.Min(x, curve.End) } };
+
+        if (node == CurveNode.End)
+            return input with { Curve = curve with { End = Math.Max(x, curve.Start) } };
+
+        double span = 1 - input.Minimum;
+        if (span <= 0) return input;    // a floor of 1 is a flat response with no shape to set
+
+        double above = Math.Clamp((y - input.Minimum) / span, 0.02, 0.98);
+
+        return input with { Curve = curve with { Exponent = Math.Log(above) / Math.Log(0.5) } };
+    }
 
     /// <summary>The node near enough to a point to have been meant by it, if any.</summary>
     /// <remarks>
@@ -1387,7 +1451,8 @@ public partial class MainWindow : Window
     /// </remarks>
     private CurveNode NodeNear(Point at)
     {
-        var curve = Brush.Curve;
+        var input = Brush.SizeDynamics.Pressure;
+        var curve = input.Curve;
         var best = CurveNode.None;
         double nearest = 22;    // generous: the node is 13px across and a pen is not a mouse
 
@@ -1397,7 +1462,7 @@ public partial class MainWindow : Window
             // middle: that curve is a step, and the exponent does nothing to it.
             if (node == CurveNode.Bend && curve.End <= curve.Start) continue;
 
-            var (x, y) = NodeAt(curve, node);
+            var (x, y) = NodeAt(input, node);
             var p = CurvePoint(x, y);
             double distance = Math.Sqrt((p.X - at.X) * (p.X - at.X) + (p.Y - at.Y) * (p.Y - at.Y));
 
@@ -1429,7 +1494,7 @@ public partial class MainWindow : Window
 
         var (x, y) = CurveValue(e.GetPosition(CurvePlot));
 
-        EditBrush(b => b with { Curve = Dragged(b.Curve, _curveDrag, x, y) });
+        EditSizePressure(i => Dragged(i, _curveDrag, x, y));
         e.Handled = true;
     }
 
@@ -1440,11 +1505,11 @@ public partial class MainWindow : Window
     /// Anything that will not parse is not an edit, and the box goes back to saying what the brush
     /// says, which is also what Escape does.
     /// </remarks>
-    private void OnNumberBox(TextBox box, Func<double, BrushSettings, BrushSettings> apply)
+    private void OnNumberBox(TextBox box, Action<double> apply)
     {
         void Commit()
         {
-            if (double.TryParse(box.Text, out double value)) EditBrush(b => apply(value, b));
+            if (double.TryParse(box.Text, out double value)) apply(value);
             else ShowBrush();
         }
 
@@ -1460,7 +1525,7 @@ public partial class MainWindow : Window
         };
     }
 
-    private void DrawCurve(PressureCurve curve)
+    private void DrawCurve(DynamicInput input)
     {
         if (!PlotIsLaidOut) return;   // before the first layout pass
 
@@ -1470,12 +1535,14 @@ public partial class MainWindow : Window
         CurveDiagonal.StartPoint = new Point(CurvePad, h - CurvePad);
         CurveDiagonal.EndPoint = new Point(w - CurvePad, CurvePad);
 
+        // Drawn through Apply rather than from the formula, so the picture cannot disagree with
+        // the brush -- the floor and the curve are both in it because they are both in there.
         var points = new List<Point>();
         const int steps = 64;
         for (int i = 0; i <= steps; i++)
         {
             double x = (double)i / steps;
-            points.Add(CurvePoint(x, curve.Apply(x)));
+            points.Add(CurvePoint(x, input.Apply(x)));
         }
 
         CurveLine.Points = points;
@@ -1485,12 +1552,12 @@ public partial class MainWindow : Window
 
         // No middle to a range of no width, so there is nothing there to grab and nothing it
         // would do if there were.
-        CurveBendNode.IsVisible = curve.End > curve.Start;
+        CurveBendNode.IsVisible = input.Curve.End > input.Curve.Start;
         if (CurveBendNode.IsVisible) Place(CurveBendNode, CurveNode.Bend);
 
         void Place(Ellipse node, CurveNode which)
         {
-            var (x, y) = NodeAt(curve, which);
+            var (x, y) = NodeAt(input, which);
             var p = CurvePoint(x, y);
 
             Canvas.SetLeft(node, p.X - node.Width / 2);

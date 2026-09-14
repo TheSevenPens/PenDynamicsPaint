@@ -58,7 +58,7 @@ public class PathSmootherTests
     }
 
     private static StrokeSample At(DocumentPoint p, double pressure = 1.0) =>
-        new(p, pressure, PenOrientation.None, pressure);
+        new(p, pressure, PenOrientation.None);
 
     private static List<DocumentPoint> Smooth(IEnumerable<DocumentPoint> path, StrokeSmoothing smoothing)
     {

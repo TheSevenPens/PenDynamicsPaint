@@ -37,7 +37,7 @@ public class CurveFitterTests
     }
 
     private static StrokeSample At(DocumentPoint p, double pressure = 1.0) =>
-        new(p, pressure, PenOrientation.None, pressure);
+        new(p, pressure, PenOrientation.None);
 
     /// <summary>The whole painted path for a set of samples, flush included.</summary>
     private static List<DocumentPoint> Path(IEnumerable<DocumentPoint> samples, StrokeInterpolation how)
@@ -294,15 +294,15 @@ public class CurveFitterTests
         double previous = -1;
         foreach (var point in drawn)
         {
-            Assert.InRange(point.ProcessedPressure, 0.1, 0.85);
-            Assert.True(point.ProcessedPressure >= previous - 1e-9, "the ramp should not step back");
-            previous = point.ProcessedPressure;
+            Assert.InRange(point.RawPressure, 0.1, 0.85);
+            Assert.True(point.RawPressure >= previous - 1e-9, "the ramp should not step back");
+            previous = point.RawPressure;
         }
 
         // Monotonic and in range is not enough: handing every flattened point the pressure of the
         // sample ahead of it satisfies both, and turns the ramp into a staircase with one step per
         // sample. What says it is a ramp is that the value changes between the steps.
-        int distinct = drawn.Select(q => Math.Round(q.ProcessedPressure, 9)).Distinct().Count();
+        int distinct = drawn.Select(q => Math.Round(q.RawPressure, 9)).Distinct().Count();
         Assert.True(distinct > drawn.Count / 2,
             $"only {distinct} distinct pressures over {drawn.Count} points: a staircase, not a ramp");
     }

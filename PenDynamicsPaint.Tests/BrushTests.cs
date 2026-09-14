@@ -29,7 +29,6 @@ public class BrushTests
         Name = "taper",
         Engine = BrushEngineKind.Taper,
         Size = 20,
-        PressureDrives = PressureControl.Size,
     };
 
     /// <summary>Beads: marks two diameters apart, so the gaps are unmistakable.</summary>
@@ -39,7 +38,16 @@ public class BrushTests
         Engine = BrushEngineKind.Dabs,
         Size = 20,
         Spacing = 2.0,
-        PressureDrives = PressureControl.Size,
+    };
+
+    /// <summary>Pressure driving the property through one curve, which is the common case.</summary>
+    private static Dynamics Curved(double start, double end, double exponent) => new()
+    {
+        Pressure = new DynamicInput
+        {
+            Enabled = true,
+            Curve = new PressureCurve(start, end, exponent),
+        },
     };
 
     private static void Stroke(PaintSession s, BrushSettings brush, double y, double pressure = 1.0)
@@ -147,8 +155,8 @@ public class BrushTests
         // Two brushes, the same pen. One saturates at half pressure, so at a quarter it is already
         // at half strength; the other is linear and is at a quarter. Pressure drives size, so the
         // difference is a width that can be counted.
-        var linear = Taper with { Size = 80, Curve = PressureCurve.Linear };
-        var early = Taper with { Size = 80, Curve = new PressureCurve(0, 0.5, 1.0) };
+        var linear = Taper with { Size = 80 };
+        var early = Taper with { Size = 80, SizeDynamics = Curved(0, 0.5, 1.0) };
 
         using var a = new PaintSession(240, 200);
         Stroke(a, linear, 100, pressure: 0.25);
@@ -171,12 +179,12 @@ public class BrushTests
         // later edit has nothing to reach back into.
         using var session = new PaintSession(240, 200);
 
-        var original = Taper with { Size = 80, Curve = PressureCurve.Linear };
+        var original = Taper with { Size = 80 };
         Stroke(session, original, 60, pressure: 0.25);
         int before = InkHeight(session, 120);
 
         // The same brush, edited -- which with a record means a different one.
-        var edited = original with { Curve = new PressureCurve(0, 0.5, 1.0) };
+        var edited = original with { SizeDynamics = Curved(0, 0.5, 1.0) };
         Stroke(session, edited, 160, pressure: 0.25);
         Assert.True(session.Undo());
 
@@ -184,61 +192,136 @@ public class BrushTests
     }
 
     [Fact]
-    public void A_sample_keeps_the_pen_reading_beside_what_the_brush_made_of_it()
+    public void A_sample_keeps_the_pen_reading_and_nothing_the_brush_made_of_it()
     {
-        // What replaced the generation counter. There used to be one global curve, so a cached
-        // output could be left over from an older one and a stroke had to record which generation
-        // it belonged to. With the curve on the brush, and the brush on the stroke, the two cannot
-        // drift: every sample has to agree with its own stroke.
+        // A sample used to carry a second pressure beside the reading: the output of the brush's
+        // one curve, which every property then read. There is no such number now -- width and ink
+        // have curves of their own -- so what is recorded is what the pen did, and the brush that
+        // is recorded with it works out the rest.
         using var session = new PaintSession(240, 200);
 
-        var brush = Taper with { Curve = new PressureCurve(0.1, 0.8, 1.6) };
+        var brush = Taper with { SizeDynamics = Curved(0.1, 0.8, 1.6) };
         for (int i = 0; i <= 20; i++) session.AddSample(20 + i * 8, 100, i / 20.0, brush);
         session.EndStroke();
 
         var stroke = session.History.Strokes[0];
         Assert.NotEmpty(stroke.Samples);
 
-        foreach (var sample in stroke.Samples)
-            Assert.Equal(stroke.Brush.Curve.Apply(sample.RawPressure),
-                         sample.ProcessedPressure, precision: 9);
-
-        // And the pen reading itself is untouched, which is the half worth keeping.
+        // Untouched by the curve, which is the half worth keeping: a stroke drawn through a steep
+        // response still says what the hand actually did.
         Assert.Equal(1.0, stroke.Samples[^1].RawPressure, precision: 9);
+        Assert.Contains(stroke.Samples, sample => Math.Abs(sample.RawPressure - 0.5) < 1e-9);
+
+        // And the width still follows the curve, which is where the reading ends up.
+        Assert.Equal(stroke.Brush.SizeDynamics.Scale(0.5) * stroke.Brush.Size,
+                     stroke.Brush.StrokeWidthFor(0.5), precision: 5);
     }
 
     [Fact]
     public void Brush_opacity_caps_what_pressure_can_reach()
     {
         // Krita's brush opacity: a 40% brush never exceeds 40% however hard it is pressed.
-        var brush = new BrushSettings { Opacity = 0.4, PressureDrives = PressureControl.Opacity };
+        var brush = new BrushSettings
+        {
+            Opacity = 0.4,
+            SizeDynamics = Dynamics.None,
+            OpacityDynamics = Dynamics.FromPressure,
+        };
 
         Assert.Equal(0.4f, brush.OpacityFor(1.0), precision: 5);
         Assert.Equal(0.2f, brush.OpacityFor(0.5), precision: 5);
 
-        // With pressure driving size instead, opacity is the brush's own and pressure does not
-        // touch it.
-        var sized = brush with { PressureDrives = PressureControl.Size };
+        // With nothing driving opacity, it is the brush's own and pressure does not touch it.
+        var sized = brush with { OpacityDynamics = Dynamics.None };
         Assert.Equal(0.4f, sized.OpacityFor(0.1), precision: 5);
     }
 
     [Fact]
     public void Pressure_can_drive_both_size_and_opacity()
     {
-        // An exclusive choice cannot express an ordinary soft brush, which is why Both exists.
-        var both = new BrushSettings { Size = 100, PressureDrives = PressureControl.Both };
+        // The ordinary soft brush, and the case a single choice of target could not express.
+        var both = new BrushSettings { Size = 100, OpacityDynamics = Dynamics.FromPressure };
 
         Assert.Equal(50f, both.StrokeWidthFor(0.5), precision: 5);
         Assert.Equal(0.5f, both.OpacityFor(0.5), precision: 5);
 
-        // And each of the exclusive settings still leaves the other alone.
-        var sizeOnly = both with { PressureDrives = PressureControl.Size };
+        // And each property is left alone by the other being switched off.
+        var sizeOnly = both with { OpacityDynamics = Dynamics.None };
         Assert.Equal(50f, sizeOnly.StrokeWidthFor(0.5), precision: 5);
         Assert.Equal(1f, sizeOnly.OpacityFor(0.5), precision: 5);
 
-        var opacityOnly = both with { PressureDrives = PressureControl.Opacity };
+        var opacityOnly = both with { SizeDynamics = Dynamics.None };
         Assert.Equal(100f, opacityOnly.StrokeWidthFor(0.5), precision: 5);
         Assert.Equal(0.5f, opacityOnly.OpacityFor(0.5), precision: 5);
+    }
+
+    [Fact]
+    public void Size_and_opacity_can_read_the_pen_differently()
+    {
+        // The whole of what splitting the curve bought, and the thing the single shared one could
+        // not say however it was shaped: width coming on early while ink holds back. Both
+        // properties see the same reading and answer differently.
+        var brush = new BrushSettings
+        {
+            Size = 100,
+            Opacity = 1.0,
+            SizeDynamics = Curved(0, 1, 0.5),       // eager
+            OpacityDynamics = Curved(0, 1, 2.0),    // reluctant
+        };
+
+        Assert.True(brush.StrokeWidthFor(0.5) > 60,
+                    $"the width should come on early: {brush.StrokeWidthFor(0.5):F1} of 100");
+        Assert.True(brush.OpacityFor(0.5) < 0.4,
+                    $"the ink should hold back: {brush.OpacityFor(0.5):F2}");
+
+        // At the ends they still agree, which is what makes the middle a shape rather than a
+        // different range.
+        Assert.Equal(100f, brush.StrokeWidthFor(1.0), precision: 3);
+        Assert.Equal(1f, brush.OpacityFor(1.0), precision: 3);
+    }
+
+    [Fact]
+    public void A_floor_keeps_the_brush_from_thinning_away_to_nothing()
+    {
+        // The one thing a curve cannot express. Whatever its shape, a curve that ends at zero ends
+        // at zero, and a nib that thins to a third rather than to nothing is a different nib.
+        var brush = new BrushSettings
+        {
+            Size = 60,
+            SizeDynamics = new Dynamics
+            {
+                Pressure = new DynamicInput { Enabled = true, Minimum = 1.0 / 3 },
+            },
+        };
+
+        Assert.Equal(20f, brush.StrokeWidthFor(0), precision: 3);
+        Assert.Equal(60f, brush.StrokeWidthFor(1), precision: 3);
+
+        // And the floor lifts the middle with it rather than being a step at the bottom: half
+        // pressure on a straight curve is half way between the floor and the top.
+        Assert.Equal(40f, brush.StrokeWidthFor(0.5), precision: 3);
+    }
+
+    [Fact]
+    public void A_property_nothing_drives_is_whatever_its_own_setting_says()
+    {
+        // A disabled input scales by 1 rather than by 0, which is the difference between a brush
+        // with no dynamics and a brush that draws nothing.
+        var brush = new BrushSettings
+        {
+            Size = 44,
+            Opacity = 0.5,
+            SizeDynamics = Dynamics.None,
+            OpacityDynamics = Dynamics.None,
+        };
+
+        foreach (double pressure in new[] { 0.0, 0.01, 0.5, 1.0 })
+        {
+            Assert.Equal(44f, brush.StrokeWidthFor(pressure), precision: 3);
+            Assert.Equal(0.5f, brush.OpacityFor(pressure), precision: 3);
+        }
+
+        Assert.Equal(0, brush.SizeDynamics.Count);
     }
 
     [Fact]
@@ -321,8 +404,7 @@ public class BrushTests
             var wide = Taper with
             {
                 Size = 80,
-                PressureDrives = PressureControl.Size,
-                Smoothing = smoothing,
+                        Smoothing = smoothing,
             };
 
             int i = 0;
@@ -411,7 +493,7 @@ public class BrushTests
         //
         // Only visible with pressure smoothing on, which is why nothing else here catches it: with
         // it off the filtered pressure is the raw pressure and both orders agree.
-        var brush = Taper with { Size = 80, PressureDrives = PressureControl.Size };
+        var brush = Taper with { Size = 80 };
 
         // Both runs filter the position, so the only thing that differs is the pressure reach.
         // With the position reach at zero instead, a build that filtered pressure whenever it

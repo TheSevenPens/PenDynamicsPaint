@@ -31,10 +31,11 @@ public readonly record struct PenOrientation(
 /// pixels it left.
 /// </para>
 /// <para>
-/// <b><see cref="ProcessedPressure"/> is what the brush made of it</b>, through
-/// <see cref="BrushSettings.Process"/>. It cannot disagree with the brush, since the stroke keeps
-/// the brush too. Width and opacity are deliberately not stored: they follow from this value and
-/// that brush by arithmetic, so keeping them would be a second copy to keep in step for no gain.
+/// <b>Nothing the brush made of it is stored.</b> There used to be a second pressure here, the
+/// reading after the brush's one curve had been applied, and every property read that. Once width
+/// and ink have curves of their own there is no single such number to keep -- so each property
+/// works out its own from the reading and the brush, both of which the stroke already holds.
+/// Width and opacity are not stored for the same reason.
 /// </para>
 /// <para>
 /// <b>Smoothing is not applied here.</b> A filtered sample is computed on the way to the engine and
@@ -59,13 +60,7 @@ public readonly record struct StrokeSample(
     DocumentPoint Position,
     double RawPressure,
     PenOrientation Orientation,
-    double ProcessedPressure,
-    long TimestampMicroseconds = 0)
-{
-    /// <summary>Whichever of the two pressures <paramref name="channel"/> names.</summary>
-    public double PressureFor(PressureChannel channel) =>
-        channel == PressureChannel.Raw ? RawPressure : ProcessedPressure;
-}
+    long TimestampMicroseconds = 0);
 
 /// <summary>
 /// One stroke: the samples, and the state that was in force while it was drawn.

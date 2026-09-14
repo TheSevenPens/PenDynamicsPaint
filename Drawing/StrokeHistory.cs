@@ -79,9 +79,8 @@ public sealed class StrokeHistory
     /// which is that no clock was reported.
     /// </param>
     public void AddSample(DocumentPoint position, double rawPressure, PenOrientation orientation,
-                          double processedPressure, long timestampMicroseconds = 0)
-        => AddSample(new StrokeSample(position, rawPressure, orientation, processedPressure,
-                                      timestampMicroseconds));
+                          long timestampMicroseconds = 0)
+        => AddSample(new StrokeSample(position, rawPressure, orientation, timestampMicroseconds));
 
     /// <summary>Record one sample into the stroke in progress, if there is one.</summary>
     /// <remarks>

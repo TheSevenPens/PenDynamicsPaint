@@ -28,7 +28,7 @@ public class LayerStackTests
     private static void Stroke(PaintSession s, SKColor color, double y, double size = 30)
     {
         s.SetStrokeColor(color);
-        var brush = BrushSettings.Default with { Size = size, PressureDrives = PressureControl.Size };
+        var brush = BrushSettings.Default with { Size = size };
 
         for (double x = 20; x <= 220; x += 2) s.AddSample(x, y, 1.0, brush);
         s.EndStroke();
@@ -213,7 +213,7 @@ public class LayerStackTests
         // The caps bound a long session. Until they were wired up they were dead code and the
         // history grew for as long as the application ran.
         using var session = new PaintSession(600, 240);
-        var brush = BrushSettings.Default with { Size = 6, PressureDrives = PressureControl.Size };
+        var brush = BrushSettings.Default with { Size = 6 };
 
         // The first stroke sits on its own, away from the rest, so it can be identified later.
         session.AddSample(20, 30, 1.0, brush);
@@ -257,8 +257,7 @@ public class LayerStackTests
         {
             Size = 30,
             Opacity = 0.4,
-            PressureDrives = PressureControl.Size,
-        };
+            };
 
         // A band of overlapping strokes, more than the cap holds, so the oldest are evicted.
         for (int i = 0; i <= StrokeHistory.MaxStrokes; i++)
@@ -372,7 +371,7 @@ public class LayerStackTests
         using var session = new PaintSession(240, 200);
         session.AddLayer();
 
-        var brush = BrushSettings.Default with { Size = 30, PressureDrives = PressureControl.Size };
+        var brush = BrushSettings.Default with { Size = 30 };
         session.SetStrokeColor(Red);
         for (double x = 20; x <= 120; x += 2) session.AddSample(x, 100, 1.0, brush);
 

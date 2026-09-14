@@ -433,8 +433,7 @@ public sealed class PaintSession : IDisposable
         // Recorded as the pen reported it. The filtered form is worked out below and not kept:
         // the document holds the pen's path, and replay runs the filter again.
         var sample = new StrokeSample(new DocumentPoint(documentX, documentY),
-                                      pressure, orientation, active.Process(pressure),
-                                      timestampMicroseconds);
+                                      pressure, orientation, timestampMicroseconds);
         History.AddSample(sample);
 
         var target = _layerActive ? _strokeLayer!.Canvas : ActiveLayer.Canvas;
@@ -454,24 +453,27 @@ public sealed class PaintSession : IDisposable
     /// </remarks>
     private void DrawTo(SKCanvas target, in StrokeSample point, BrushSettings brush)
     {
-        if (_lastDrawn is { } from && (brush.DrawAtZeroPressure || point.ProcessedPressure > 0))
+        // The gate is on what the pen reported rather than on what the brush made of it. It
+        // used to be the latter, which worked while one curve stood between the pen and every
+        // property: a reading below the curve's start came out as zero and the segment was
+        // skipped. With a curve per property there is no such single number, and "is the pen
+        // touching" is the question this was always asking.
+        if (_lastDrawn is { } from && (brush.DrawAtZeroPressure || point.RawPressure > 0))
         {
-            _strokeEngine!.DrawSegment(target, from, point, brush, _strokeColor,
-                                       PressureChannel.Processed);
+            _strokeEngine!.DrawSegment(target, from, point, brush, _strokeColor);
             MarkStale(_strokeEngine.LastSegmentBounds);
         }
 
         _lastDrawn = point;
     }
 
-    /// <summary>
-    /// The sample the engine should draw: the filtered path, then the brush's reading of it.
-    /// </summary>
+    /// <summary>The sample the engine should draw: the pen's path, steadied.</summary>
     /// <remarks>
-    /// The order matters and is Krita's. Filtering steadies what the pen reported; the curve is
-    /// the brush's response to it. Curving first and filtering after would smooth the brush's
-    /// output rather than the hand's input, so a brush with a steep curve would be filtered harder
-    /// than a gentle one holding the same pen.
+    /// Only the filter runs here. The brush's response to the reading used to be worked out on the
+    /// way past, in this order and for Krita's reason -- filtering steadies what the pen reported,
+    /// and curving first would smooth the brush's output rather than the hand's input. The order
+    /// still holds; the curves have simply moved to where the width and the ink are worked out,
+    /// which is downstream of this either way.
     /// </remarks>
     private StrokeSample Filter(in StrokeSample sample, BrushSettings brush)
     {
@@ -482,7 +484,6 @@ public sealed class PaintSession : IDisposable
         {
             Position = filtered.Position,
             RawPressure = filtered.RawPressure,
-            ProcessedPressure = brush.Process(filtered.RawPressure),
 
             // Orientation used to be left off this list, and so reached the brush exactly as the
             // tablet reported it while the path beside it was being steadied. Nothing noticed
@@ -815,11 +816,9 @@ public sealed class PaintSession : IDisposable
 
         void Draw(StrokeSample point)
         {
-            if (previous is { } from &&
-                (stroke.Brush.DrawAtZeroPressure || point.ProcessedPressure > 0))
+            if (previous is { } from && (stroke.Brush.DrawAtZeroPressure || point.RawPressure > 0))
             {
-                engine.DrawSegment(target, from, point,
-                                   stroke.Brush, stroke.Color, PressureChannel.Processed);
+                engine.DrawSegment(target, from, point, stroke.Brush, stroke.Color);
             }
 
             previous = point;

@@ -30,7 +30,7 @@ public class OpenRasterTests
     private static readonly SKColor Blue = new(0x00, 0x00, 0xFF);
 
     private static BrushSettings Opaque(double size = 30) =>
-        BrushSettings.Default with { Size = size, PressureDrives = PressureControl.Size };
+        BrushSettings.Default with { Size = size };
 
     /// <summary>A short opaque stroke, drawn and finished.</summary>
     private static void Stroke(PaintSession session, SKColor color,

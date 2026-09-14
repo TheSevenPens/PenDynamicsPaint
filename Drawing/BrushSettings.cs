@@ -122,8 +122,28 @@ public sealed record BrushSettings
         init => _opacity = double.IsNaN(value) ? 1 : Math.Clamp(value, 0, 1);
     }
 
-    /// <summary>How this brush reads the pen.</summary>
-    public PressureCurve Curve { get; init; } = PressureCurve.Linear;
+    /// <summary>What the pen says about the width of the mark.</summary>
+    /// <remarks>
+    /// This and <see cref="OpacityDynamics"/> replace a single <c>Curve</c> shared by both and a
+    /// <c>PressureDrives</c> enum saying which of them it reached. Shared, the two could never
+    /// have different shapes, and the enum could say that pressure drove both but not that it
+    /// drove them differently -- which is the ordinary case, since a brush usually wants width to
+    /// come on faster than ink.
+    /// </remarks>
+    /// <remarks>
+    /// Pressure by default, because a brush that ignores the pen is the odd one out and because
+    /// that is what the enum this replaced defaulted to.
+    /// </remarks>
+    public Dynamics SizeDynamics { get; init; } = Dynamics.FromPressure;
+
+    /// <summary>What the pen says about how much ink the mark puts down.</summary>
+    /// <remarks>
+    /// No editor yet: the panel has a checkbox for whether pressure reaches opacity at all, and
+    /// the curve is whichever one the brush was built with. It is the same type as
+    /// <see cref="SizeDynamics"/>, so giving opacity its own button is a matter of pointing the
+    /// flyout at this instead.
+    /// </remarks>
+    public Dynamics OpacityDynamics { get; init; } = Dynamics.None;
 
     /// <summary>
     /// The MyPaint brush this uses, when <see cref="Engine"/> is
@@ -174,46 +194,34 @@ public sealed record BrushSettings
     /// <summary>How each new stroke picks its colour.</summary>
     public ColorMode ColorMode { get; init; } = ColorMode.Black;
 
-    /// <summary>Which property of the mark pressure drives.</summary>
-    public PressureControl PressureDrives { get; init; } = PressureControl.Size;
-
     /// <summary>Whether a sample with no pressure still puts something down.</summary>
     public bool DrawAtZeroPressure { get; init; }
 
     public static BrushSettings Default { get; } = new();
 
     /// <summary>
-    /// Stroke width in DIPs for a pipeline output value.
+    /// Stroke width in DIPs for one pen reading.
     /// </summary>
     /// <remarks>
-    /// Lives on the record rather than on the window so that anything holding these settings can
-    /// work out the mark — which is the point of having a record at all. Floored at
+    /// Takes the reading as the pen gave it: the curve that shapes it belongs to
+    /// <see cref="SizeDynamics"/> and is applied here, rather than once on the way in for every
+    /// property to share. Lives on the record so that anything holding these settings can work out
+    /// the mark, which is the point of having a record at all. Floored at
     /// <see cref="MinStrokeWidth"/> rather than at zero, so the faintest contact still marks.
     /// </remarks>
-    public float StrokeWidthFor(double pressure) => PressureDrives == PressureControl.Opacity
-        ? (float)Size
-        : (float)Math.Max(MinStrokeWidth, pressure * Size);
-
-    /// <summary>Run one pen reading through this brush's curve.</summary>
-    /// <remarks>
-    /// The one place the curve is applied. The session calls it as each sample arrives and keeps
-    /// both values on the sample, so what the pen reported stays recoverable next to what the
-    /// brush made of it.
-    /// </remarks>
-    public double Process(double rawPressure) => Curve.Apply(rawPressure);
+    public float StrokeWidthFor(double pressure) =>
+        (float)Math.Max(MinStrokeWidth, Size * SizeDynamics.Scale(pressure));
 
     /// <summary>
-    /// Stroke opacity for a pipeline output value.
+    /// Stroke opacity for one pen reading.
     /// </summary>
     /// <remarks>
-    /// <see cref="Opacity"/> sets the ceiling and pressure scales it, so a 15% brush never exceeds
-    /// 15% however hard it is pressed. Floored at 0.02 of that ceiling rather than at 0: fully
-    /// transparent is indistinguishable from not drawing, and the faintest contact should still
-    /// leave a trace.
+    /// <see cref="Opacity"/> sets the ceiling and the dynamics scale it, so a 15% brush never
+    /// exceeds 15% however hard it is pressed. Floored at 0.02 of that ceiling rather than at 0:
+    /// fully transparent is indistinguishable from not drawing, and the faintest contact should
+    /// still leave a trace. A brush with nothing driving its opacity scales by 1 and so is
+    /// untouched by either.
     /// </remarks>
-    public float OpacityFor(double pressure)
-    {
-        if (PressureDrives == PressureControl.Size) return (float)Opacity;
-        return (float)(Opacity * Math.Max(0.02, pressure));
-    }
+    public float OpacityFor(double pressure) =>
+        (float)(Opacity * Math.Max(0.02, OpacityDynamics.Scale(pressure)));
 }

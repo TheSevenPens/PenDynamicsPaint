@@ -31,8 +31,14 @@ public static class BrushLibrary
             Name = "Ink pen",
             Engine = BrushEngineKind.Taper,
             Size = 18,
-            PressureDrives = PressureControl.Size,
-            Curve = new PressureCurve(0.0, 0.85, 1.4),
+            SizeDynamics = new Dynamics
+            {
+                Pressure = new DynamicInput
+                {
+                    Enabled = true,
+                    Curve = new PressureCurve(0.0, 0.85, 1.4),
+                },
+            },
 
             // Inking is where a steady line is worth a little lag. The pressure is left
             // unfiltered: this brush wants its line straightened, not its weight evened out.
@@ -51,8 +57,19 @@ public static class BrushLibrary
             Engine = BrushEngineKind.Taper,
             Size = 42,
             Opacity = 0.35,
-            PressureDrives = PressureControl.Opacity,
-            Curve = new PressureCurve(0.05, 0.7, 1.0),
+
+            // Nothing drives the width: this brush is a constant-width nib and the ink is what
+            // the pen changes. Said out loud because pressure drives size by default.
+            SizeDynamics = Dynamics.None,
+
+            OpacityDynamics = new Dynamics
+            {
+                Pressure = new DynamicInput
+                {
+                    Enabled = true,
+                    Curve = new PressureCurve(0.05, 0.7, 1.0),
+                },
+            },
 
             // The opposite case, and the reason the two reaches are separate: pressure drives
             // opacity here, so a jumpy sensor shows as a blotchy stroke. Steady the pressure and
@@ -68,8 +85,27 @@ public static class BrushLibrary
             Engine = BrushEngineKind.Dabs,
             Size = 36,
             Spacing = 0.1,
-            PressureDrives = PressureControl.Both,
-            Curve = new PressureCurve(0.02, 1.0, 1.0),
+            // The one brush in the set where pressure drives width and ink at once, and with
+            // that it is the one that shows what splitting the two bought: the width comes on
+            // early and the ink holds back, which one shared curve could not have said.
+            SizeDynamics = new Dynamics
+            {
+                Pressure = new DynamicInput
+                {
+                    Enabled = true,
+                    Curve = new PressureCurve(0.02, 1.0, 0.75),
+                },
+            },
+
+            OpacityDynamics = new Dynamics
+            {
+                Pressure = new DynamicInput
+                {
+                    Enabled = true,
+                    Minimum = 0.15,
+                    Curve = new PressureCurve(0.02, 1.0, 1.4),
+                },
+            },
 
             // Pressure drives size and opacity together here, so both halves are worth steadying.
             Smoothing = new StrokeSmoothing { Position = 30, Pressure = 40 },
@@ -84,8 +120,18 @@ public static class BrushLibrary
             Engine = BrushEngineKind.Dabs,
             Size = 28,
             Spacing = 1.0,
-            PressureDrives = PressureControl.Size,
-            Curve = new PressureCurve(0.0, 1.0, 0.7),
+            // A floor, so the beads never shrink to nothing however lightly the pen is used.
+            // Nothing else in the set has one, and it is the thing no curve can express: a curve
+            // that ends at zero ends at zero whatever its shape.
+            SizeDynamics = new Dynamics
+            {
+                Pressure = new DynamicInput
+                {
+                    Enabled = true,
+                    Minimum = 0.35,
+                    Curve = new PressureCurve(0.0, 1.0, 0.7),
+                },
+            },
 
             // Unfiltered, so the opening set has one brush that shows the pen exactly as it
             // reported -- which is the thing this application's neighbour exists to look at.

@@ -42,7 +42,7 @@ public class TiltSmoothingTests
         for (int i = 0; i < samples; i++)
         {
             var sample = new StrokeSample(new DocumentPoint(20 + i * Step, 100),
-                                          1.0, orientation(i), 1.0);
+                                          1.0, orientation(i));
             last = filter.Next(sample, smoothing).Orientation;
         }
 
@@ -183,7 +183,7 @@ public class TiltSmoothingTests
             for (int i = 0; i < 120; i++)
             {
                 var at = new DocumentPoint(20 + i * Step, 100 + (i % 2 == 0 ? -4 : 4));
-                last = filter.Next(new StrokeSample(at, 1.0, Rocking(i), 1.0), smoothing);
+                last = filter.Next(new StrokeSample(at, 1.0, Rocking(i)), smoothing);
             }
 
             return last;

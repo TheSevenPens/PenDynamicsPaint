@@ -198,7 +198,7 @@ public class MyPaintEngineTests
         for (int i = 1; i <= 800; i++)
         {
             var at = new DocumentPoint(i * 0.7, 0);
-            var sample = new StrokeSample(at, 0.6, PenOrientation.None, 0.6);
+            var sample = new StrokeSample(at, 0.6, PenOrientation.None);
             seen.Add(tracker.Next(at, previous, sample, 0.01, brush, baseRadius)[BrushInput.Stroke]);
             previous = at;
         }
