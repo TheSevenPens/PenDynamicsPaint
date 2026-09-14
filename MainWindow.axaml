@@ -25,6 +25,15 @@
             <Setter Property="Height" Value="24" />
         </Style>
 
+        <!-- A row holding a combo box gets more height than one holding a label or a slider.
+             A combo is a bordered box of its own, and three of them 3px apart drew two hairlines
+             between each pair, which reads as dividing lines inside one tall control rather than
+             as the edges of three separate ones. The extra height is padding around the box, not
+             a taller box: the combo is still 24 and still centred. -->
+        <Style Selector="Border.row.combo">
+            <Setter Property="Height" Value="32" />
+        </Style>
+
         <Style Selector="Border.row > Grid > TextBlock.name">
             <Setter Property="FontSize" Value="11" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -218,7 +227,7 @@
                     <!-- What the ink does between two samples. Next to the engine because the two
                          together decide the shape of a mark: one lays it down, the other says
                          along what path. -->
-                    <Border Classes="row">
+                    <Border Classes="row combo">
                         <Grid ColumnDefinitions="58,*">
                             <TextBlock Grid.Column="0" Classes="name" Text="Path" />
                             <ComboBox Grid.Column="1" x:Name="InterpolationCombo" Height="24"
@@ -232,7 +241,7 @@
                          looks like, which is the same question whichever brush drew it. In use it
                          is not: a marker wants its overlaps flattened and a dry-media brush wants
                          them to build up. -->
-                    <Border Classes="row">
+                    <Border Classes="row combo">
                         <Grid ColumnDefinitions="58,*">
                             <TextBlock Grid.Column="0" Classes="name" Text="Stroke" />
                             <ComboBox Grid.Column="1" x:Name="CompositingCombo" Height="24"
@@ -241,7 +250,7 @@
                         </Grid>
                     </Border>
 
-                    <Border Classes="row" x:Name="DrivesRow">
+                    <Border Classes="row combo" x:Name="DrivesRow">
                         <Grid ColumnDefinitions="58,*">
                             <TextBlock Grid.Column="0" Classes="name" Text="Pressure" />
                             <ComboBox Grid.Column="1" x:Name="DrivesCombo" Height="24"
