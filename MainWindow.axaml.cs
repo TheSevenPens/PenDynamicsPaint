@@ -12,6 +12,7 @@ using PenDynamicsPaint.Paint;
 using SkiaSharp;
 using WinPenKit;
 using WinPenKit.Avalonia;
+using WinPenKit.Diagnostics;
 
 // Aliased rather than imported whole: Avalonia.Controls.Shapes also holds a Path, and this file
 // works with file paths.
@@ -178,7 +179,11 @@ public partial class MainWindow : Window
         // over this window, which a field initialiser cannot do before the constructor runs.
         AskAboutPen = async (api, error) =>
         {
-            var dialog = new PenProblemWindow(api, error, _apis.Contains(InputApi.AvaloniaPointer));
+            // The driver is asked here rather than inside the dialog, so that what the dialog
+            // says is a function of what it was handed and a test can hand it either answer.
+            var dialog = new PenProblemWindow(api, error,
+                                              _apis.Contains(InputApi.AvaloniaPointer),
+                                              WintabDiagnostics.ContextTable());
             await dialog.ShowDialog(this);
             return dialog.Choice;
         };

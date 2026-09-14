@@ -9,6 +9,7 @@ using Avalonia.VisualTree;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
 using WinPenKit;
+using WinPenKit.Diagnostics;
 using SkiaSharp;
 using Xunit;
 
@@ -932,14 +933,14 @@ public class WindowTests
         // offering it as the way out of itself would be a button that reopens what just failed.
         OnTheUiThread.Run(() =>
         {
-            var wintab = new PenProblemWindow(InputApi.WintabDigitizer, "held", true);
+            var wintab = new PenProblemWindow(InputApi.WintabDigitizer, "held", true, null);
             Assert.True(wintab.GetControl<Button>("FallbackButton").IsVisible);
 
-            var fallback = new PenProblemWindow(InputApi.AvaloniaPointer, "nothing arrives", true);
+            var fallback = new PenProblemWindow(InputApi.AvaloniaPointer, "nothing", true, null);
             Assert.False(fallback.GetControl<Button>("FallbackButton").IsVisible);
 
             // Nor one this machine has not got.
-            var alone = new PenProblemWindow(InputApi.WintabDigitizer, "held", false);
+            var alone = new PenProblemWindow(InputApi.WintabDigitizer, "held", false, null);
             Assert.False(alone.GetControl<Button>("FallbackButton").IsVisible);
 
             // Whichever is showing, one button that is showing is the one Enter presses. The
@@ -949,6 +950,38 @@ public class WindowTests
             Assert.Contains(new[] { "RetryButton", "FallbackButton" },
                             name => alone.GetControl<Button>(name)
                                 is { IsDefault: true, IsVisible: true });
+        });
+    }
+
+    [Fact]
+    public void The_dialog_gives_the_cause_the_driver_admitted_to()
+    {
+        // The first version of this dialog guessed, and guessed wrong: it said another
+        // application was holding the tablet, when the driver had simply run out of contexts and
+        // was refusing every kind of context to everyone. The driver will say which it is, so it
+        // is asked rather than assumed.
+        OnTheUiThread.Run(() =>
+        {
+            var full = new PenProblemWindow(InputApi.WintabDigitizer, "no contexts", true,
+                                            new WintabContextTable(253, 32));
+            string? said = full.GetControl<TextBlock>("CauseText").Text;
+
+            Assert.Contains("253", said);
+            Assert.Contains("Wacom Tablet Service", said);
+            Assert.DoesNotContain("Clip Studio", said);
+
+            // With contexts to spare it is worth blaming another application again, and the two
+            // that do it are named because "another application" sends someone hunting.
+            var plenty = new PenProblemWindow(InputApi.WintabDigitizer, "held", true,
+                                              new WintabContextTable(2, 32));
+            said = plenty.GetControl<TextBlock>("CauseText").Text;
+
+            Assert.Contains("Clip Studio", said);
+            Assert.DoesNotContain("run out", said);
+
+            // And a driver that would not say keeps the guess rather than inventing a number.
+            var silent = new PenProblemWindow(InputApi.WintabDigitizer, "held", true, null);
+            Assert.Contains("Clip Studio", silent.GetControl<TextBlock>("CauseText").Text);
         });
     }
 
