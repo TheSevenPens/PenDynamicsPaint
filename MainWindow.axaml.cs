@@ -12,6 +12,7 @@ using PenDynamicsPaint.Paint;
 using SkiaSharp;
 using WinPenKit;
 using WinPenKit.Avalonia;
+using WinPenKit.Diagnostics;
 
 // Aliased rather than imported whole: Avalonia.Controls.Shapes also holds a Path, and this file
 // works with file paths.
@@ -173,6 +174,19 @@ public partial class MainWindow : Window
         // already have been eaten by whatever the user last clicked on.
         AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyUpEvent, Window_KeyUp, RoutingStrategies.Tunnel);
+
+        // The default. Assigned here rather than as a property initialiser because it closes
+        // over this window, which a field initialiser cannot do before the constructor runs.
+        AskAboutPen = async (api, error) =>
+        {
+            // The driver is asked here rather than inside the dialog, so that what the dialog
+            // says is a function of what it was handed and a test can hand it either answer.
+            var dialog = new PenProblemWindow(api, error,
+                                              _apis.Contains(InputApi.AvaloniaPointer),
+                                              WintabDiagnostics.ContextTable());
+            await dialog.ShowDialog(this);
+            return dialog.Choice;
+        };
 
         _renderTimer.Tick += RenderTimer_Tick;
 
@@ -1497,31 +1511,210 @@ public partial class MainWindow : Window
         if (_apis.Count == 0) _api = null;
     }
 
+    /// <summary>Whether the frame loop is running.</summary>
+    /// <remarks>
+    /// The loop presents the document as well as draining the pen, so this is also the answer to
+    /// "is the canvas being drawn at all".
+    /// </remarks>
+    internal bool IsPresenting => _renderTimer.IsEnabled;
+
+/// <summary>What to pretend the tablet did, for a test.</summary>
+    /// <remarks>
+    /// There is no other way to reach the two failing paths from a test. Whether a driver exists
+    /// and whether it hands over a context are both properties of the machine -- on the one this
+    /// was written on, the second depends on whether another application happens to have the
+    /// tablet open. What is being checked is the window's response, which is a decision in this
+    /// file rather than a property of any driver.
+    /// </remarks>
+    internal enum PenForTest
+    {
+        /// <summary>Ask the machine, which is what the application does.</summary>
+        Real,
+
+        /// <summary>No driver at all.</summary>
+        NoDriver,
+
+        /// <summary>A driver that will not hand over a context.</summary>
+        Refused,
+    }
+
+    internal PenForTest PenOutcomeForTest { get; set; } = PenForTest.Real;
+
+    /// <summary>Which driver is being read, for a test that changes it.</summary>
+    internal InputApi? ApiForTest => _api;
+
+    /// <summary>
+    /// How the user is told the tablet could not be opened, and asked what to do about it.
+    /// </summary>
+    /// <remarks>
+    /// A seam because a test must not open a window that waits to be dismissed. The default is
+    /// <see cref="PenProblemWindow"/>; what is worth testing is what the window does with each
+    /// answer, which is a decision in this file.
+    /// </remarks>
+    internal Func<InputApi, string, Task<PenProblemChoice>> AskAboutPen { get; set; }
+
+    /// <summary>True while the dialog is up, so a restart behind it does not stack a second.</summary>
+    private bool _askingAboutPen;
+
+    /// <summary>
+    /// Open the pen session for the chosen API, or say why it could not be opened.
+    /// </summary>
+    /// <remarks>
+    /// <b>The frame loop starts on every path out of here, including the ones that fail.</b> It
+    /// used to start only on the last line, after two early returns -- one for having no driver at
+    /// all and one for a driver that would not open -- and it is the loop that presents the
+    /// document. So a tablet that could not be opened did not leave the application penless: it
+    /// left the canvas blank, with the document never drawn and the failure explained in a status
+    /// line at the bottom of an empty window. Found when Wintab refused a context because another
+    /// application was holding the tablet.
+    /// </remarks>
     private void StartSession()
     {
-        if (_api is not { } api) return;
-
+        // Stopped for the swap, so that no tick lands on a session being disposed.
         _renderTimer.Stop();
+
         _penSession?.Stop();
         _penSession?.Dispose();
+        _penSession = null;
         _paint.EndStroke();
 
-        _penSession = api == InputApi.AvaloniaPointer
-            ? new AvaloniaPointerSession(PaintView.Host)
-            : PenSessionFactory.Create(api);
-
-        IntPtr hwnd = TryGetPlatformHandle() is { } handle ? handle.Handle : IntPtr.Zero;
-
-        if (_penSession.Start(hwnd) is { } error)
+        // The forced outcomes are asked about first, and the refusal names its own driver rather
+        // than reading _api.
+        //
+        // Reading _api made this depend on the machine twice over. A build machine has no tablet
+        // driver, so _api is whatever Avalonia offers, which is Avalonia Pointer -- and a refusal
+        // from Avalonia Pointer deliberately says nothing about Tools > Options, since that is
+        // where it would be sending somebody who is already there. The forced case is about what
+        // a driver refusal looks like, so it states the driver.
+        if (PenOutcomeForTest == PenForTest.Refused)
         {
-            StatusLabel.Text = error;
-            _penSession.Dispose();
-            _penSession = null;
-            return;
+            RefusePen(InputApi.WintabDigitizer, "The pen session was refused.");
+        }
+        else if (PenOutcomeForTest == PenForTest.NoDriver || _api is not { } api)
+        {
+            RefusePen(InputApi.AvaloniaPointer, "No pen driver was found.");
+        }
+        else
+        {
+            var session = api == InputApi.AvaloniaPointer
+                ? new AvaloniaPointerSession(PaintView.Host)
+                : PenSessionFactory.Create(api);
+
+            IntPtr hwnd = TryGetPlatformHandle() is { } handle ? handle.Handle : IntPtr.Zero;
+
+            if (session.Start(hwnd) is { } error)
+            {
+                session.Dispose();
+                RefusePen(api, error);
+            }
+            else
+            {
+                _penSession = session;
+                StatusLabel.Text = api.Label();
+            }
         }
 
-        StatusLabel.Text = api.Label();
         _renderTimer.Start();
+    }
+
+    /// <summary>What the status line last said about the pen, so it is written only on a change.</summary>
+    private bool _penWasRunning = true;
+
+    /// <summary>
+    /// Say when the pen has gone, and say when it comes back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A context can be taken away underneath a running application -- restarting the tablet
+    /// service does it -- and until this was added, nothing showed. The application stayed up with
+    /// its status line still naming the driver and the pen simply stopped working, which reads as
+    /// a broken canvas. The session recovers on its own within a few seconds, but a few seconds of
+    /// a pen that does nothing is long enough to go looking in the wrong place.
+    /// </para>
+    /// <para>
+    /// Not a dialog. The usual case is a blip that heals itself before anyone has finished reading
+    /// a sentence, and interrupting the document for that would be worse than the silence it
+    /// replaces. A dialog is for a session that never started at all.
+    /// </para>
+    /// <para>
+    /// Written only when the answer changes, since this is asked on every frame -- and the line is
+    /// shared with everything else the application says, so rewriting it sixty times a second
+    /// would be the last word anybody ever saw.
+    /// </para>
+    /// </remarks>
+    internal void ShowPenState(bool running)
+    {
+        if (running == _penWasRunning) return;
+
+        _penWasRunning = running;
+
+        StatusLabel.Text = running
+            ? $"{_api?.Label() ?? "Pen"}: working again"
+            : "The tablet driver took the pen away. Trying to get it back...";
+    }
+
+    /// <summary>Say that the tablet could not be opened, and what can be done about it.</summary>
+    /// <remarks>
+    /// The driver's own words plus a way out, because the words on their own are not actionable:
+    /// what Wintab says is "Fallback context also failed to open", which names no cause and
+    /// suggests no remedy. The usual cause is another application holding the tablet -- Clip
+    /// Studio and Photoshop both take a Wintab context and keep it for as long as they are open --
+    /// and the way out is to close that application or to read the tablet through Windows instead.
+    /// Only for Wintab: Avalonia Pointer is the fallback, so pointing at it would be a loop.
+    /// </remarks>
+    private void RefusePen(InputApi api, string error)
+    {
+        // Kept, as the reminder after the dialog has been dismissed.
+        StatusLabel.Text = api == InputApi.AvaloniaPointer
+            ? error
+            : $"{error}  Another application may be holding the tablet. " +
+              "Tools > Options can read it through Avalonia Pointer instead.";
+
+        // Posted rather than called. This runs from the window's Opened handler on the way up,
+        // where there is not yet a window for a dialog to be modal to.
+        Dispatcher.UIThread.Post(() => ReportPenProblem(api, error), DispatcherPriority.Background);
+    }
+
+    /// <summary>Say that the pen is not working, and do whatever is chosen about it.</summary>
+    /// <remarks>
+    /// <para>
+    /// In a dialog rather than the status line, which is where this used to be said. A pen session
+    /// that fails to open leaves a canvas that will not take a stroke, and that is
+    /// indistinguishable from a broken renderer -- it was read as one both times it happened. A
+    /// line at the bottom of the window is not where anyone looks when the thing in the middle
+    /// appears not to work.
+    /// </para>
+    /// <para>
+    /// The guard covers only the time the dialog is up. Choosing to try again restarts the
+    /// session, and a restart that fails has to be able to say so.
+    /// </para>
+    /// </remarks>
+    private async void ReportPenProblem(InputApi api, string error)
+    {
+        if (_askingAboutPen) return;
+        _askingAboutPen = true;
+
+        PenProblemChoice choice;
+        try
+        {
+            choice = await AskAboutPen(api, error);
+        }
+        finally
+        {
+            _askingAboutPen = false;
+        }
+
+        switch (choice)
+        {
+            case PenProblemChoice.Retry:
+                StartSession();
+                break;
+
+            case PenProblemChoice.UseFallback when _apis.Contains(InputApi.AvaloniaPointer):
+                _api = InputApi.AvaloniaPointer;
+                StartSession();
+                break;
+        }
     }
 
     private void RenderTimer_Tick(object? sender, EventArgs e)
@@ -1539,6 +1732,12 @@ public partial class MainWindow : Window
         if (_penSession is null) return;
 
         var points = _penSession.DrainPoints();
+
+        // After the drain, because the drain is what looks. Before the early return, because a
+        // session whose context has been taken away delivers no points at all -- checking after
+        // that return would be checking only while the pen was working.
+        ShowPenState(_penSession.IsRunning);
+
         if (points.Length == 0) return;
 
         int maxPressure = _penSession.MaxPressure;
