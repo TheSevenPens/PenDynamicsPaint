@@ -174,6 +174,15 @@ public partial class MainWindow : Window
         AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyUpEvent, Window_KeyUp, RoutingStrategies.Tunnel);
 
+        // The default. Assigned here rather than as a property initialiser because it closes
+        // over this window, which a field initialiser cannot do before the constructor runs.
+        AskAboutPen = async (api, error) =>
+        {
+            var dialog = new PenProblemWindow(api, error, _apis.Contains(InputApi.AvaloniaPointer));
+            await dialog.ShowDialog(this);
+            return dialog.Choice;
+        };
+
         _renderTimer.Tick += RenderTimer_Tick;
 
         Opened += (_, _) =>
@@ -1526,6 +1535,22 @@ public partial class MainWindow : Window
 
     internal PenForTest PenOutcomeForTest { get; set; } = PenForTest.Real;
 
+    /// <summary>Which driver is being read, for a test that changes it.</summary>
+    internal InputApi? ApiForTest => _api;
+
+    /// <summary>
+    /// How the user is told the tablet could not be opened, and asked what to do about it.
+    /// </summary>
+    /// <remarks>
+    /// A seam because a test must not open a window that waits to be dismissed. The default is
+    /// <see cref="PenProblemWindow"/>; what is worth testing is what the window does with each
+    /// answer, which is a decision in this file.
+    /// </remarks>
+    internal Func<InputApi, string, Task<PenProblemChoice>> AskAboutPen { get; set; }
+
+    /// <summary>True while the dialog is up, so a restart behind it does not stack a second.</summary>
+    private bool _askingAboutPen;
+
     /// <summary>
     /// Open the pen session for the chosen API, or say why it could not be opened.
     /// </summary>
@@ -1550,7 +1575,7 @@ public partial class MainWindow : Window
 
         if (PenOutcomeForTest == PenForTest.NoDriver || _api is not { } api)
         {
-            StatusLabel.Text = "No pen driver available.";
+            RefusePen(InputApi.AvaloniaPointer, "No pen driver was found.");
         }
         else if (PenOutcomeForTest == PenForTest.Refused)
         {
@@ -1590,10 +1615,57 @@ public partial class MainWindow : Window
     /// </remarks>
     private void RefusePen(InputApi api, string error)
     {
+        // Kept, as the reminder after the dialog has been dismissed.
         StatusLabel.Text = api == InputApi.AvaloniaPointer
             ? error
             : $"{error}  Another application may be holding the tablet. " +
               "Tools > Options can read it through Avalonia Pointer instead.";
+
+        // Posted rather than called. This runs from the window's Opened handler on the way up,
+        // where there is not yet a window for a dialog to be modal to.
+        Dispatcher.UIThread.Post(() => ReportPenProblem(api, error), DispatcherPriority.Background);
+    }
+
+    /// <summary>Say that the pen is not working, and do whatever is chosen about it.</summary>
+    /// <remarks>
+    /// <para>
+    /// In a dialog rather than the status line, which is where this used to be said. A pen session
+    /// that fails to open leaves a canvas that will not take a stroke, and that is
+    /// indistinguishable from a broken renderer -- it was read as one both times it happened. A
+    /// line at the bottom of the window is not where anyone looks when the thing in the middle
+    /// appears not to work.
+    /// </para>
+    /// <para>
+    /// The guard covers only the time the dialog is up. Choosing to try again restarts the
+    /// session, and a restart that fails has to be able to say so.
+    /// </para>
+    /// </remarks>
+    private async void ReportPenProblem(InputApi api, string error)
+    {
+        if (_askingAboutPen) return;
+        _askingAboutPen = true;
+
+        PenProblemChoice choice;
+        try
+        {
+            choice = await AskAboutPen(api, error);
+        }
+        finally
+        {
+            _askingAboutPen = false;
+        }
+
+        switch (choice)
+        {
+            case PenProblemChoice.Retry:
+                StartSession();
+                break;
+
+            case PenProblemChoice.UseFallback when _apis.Contains(InputApi.AvaloniaPointer):
+                _api = InputApi.AvaloniaPointer;
+                StartSession();
+                break;
+        }
     }
 
     private void RenderTimer_Tick(object? sender, EventArgs e)

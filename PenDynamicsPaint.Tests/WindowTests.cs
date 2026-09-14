@@ -499,7 +499,13 @@ public class WindowTests
             // events on the canvas directly, which skips hit-testing: a Canvas with no brush is
             // not hit-tested, and on one of those a node could only be caught by hitting the 13px
             // ellipse itself. Nothing else in this file would notice.
-            Assert.Same(plot.Plot, plot.Plot.InputHitTest(empty));
+            //
+            // Asserted on the brush rather than through InputHitTest, which is what this was
+            // first. That walked a visual tree inside a flyout inside a shown window, and the
+            // answer turned out to depend on which other tests had run first: it passed alone and
+            // returned null once three more tests had each shown a window of their own. The brush
+            // is the whole of what decides it.
+            Assert.NotNull(plot.Plot.Background);
         });
     }
 
@@ -791,9 +797,16 @@ public class WindowTests
         // driver installed is a machine this should still open a document on.
         OnTheUiThread.Run(() =>
         {
+            var asked = new List<string>();
             var window = new MainWindow
             {
                 PenOutcomeForTest = MainWindow.PenForTest.NoDriver,
+            };
+
+            window.AskAboutPen = (_, error) =>
+            {
+                asked.Add(error);
+                return Task.FromResult(PenProblemChoice.Dismiss);
             };
 
             window.Show();
@@ -801,6 +814,141 @@ public class WindowTests
 
             Assert.True(window.IsPresenting,
                         "no driver stopped the canvas being drawn");
+
+            // And it is said out loud, for the same reason a refused context is: a canvas that
+            // will not take a stroke looks the same either way.
+            Assert.Single(asked);
+
+            window.Close();
+        });
+    }
+
+    /// <summary>A window whose pen will not open, with the dialog replaced by a recorder.</summary>
+    /// <remarks>
+    /// <para>
+    /// Shown, because the fault this is all about only happens to a window that has opened, and
+    /// answered without a dialog, because a test must not open a window that waits to be
+    /// dismissed.
+    /// </para>
+    /// <para>
+    /// <b>Close it when the test is done with it.</b> The headless session is one platform shared
+    /// by every test in the file, and a window left showing stays in it: the first version of
+    /// these three left three, and the plot test -- which opens a flyout and hit-tests it -- began
+    /// failing when it ran after them and passing when it ran alone.
+    /// </para>
+    /// </remarks>
+    private static (MainWindow Window, List<string> Asked) RefusedPen(
+        Func<int, PenProblemChoice> answer)
+    {
+        var asked = new List<string>();
+        var window = new MainWindow { PenOutcomeForTest = MainWindow.PenForTest.Refused };
+
+        window.AskAboutPen = (api, error) =>
+        {
+            asked.Add($"{api}: {error}");
+            return Task.FromResult(answer(asked.Count));
+        };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        return (window, asked);
+    }
+
+    [Fact]
+    public void A_tablet_that_will_not_open_says_so_in_front_of_the_document()
+    {
+        // Twice now, a pen session that failed to open has been read as the drawing being broken.
+        // It looks exactly like that: the pen moves, the canvas stays empty, and the only thing
+        // that says otherwise is a line at the bottom of the window, which is not where anyone
+        // looks when the thing in the middle appears not to work.
+        OnTheUiThread.Run(() =>
+        {
+            var (window, asked) = RefusedPen(_ => PenProblemChoice.Dismiss);
+
+            Assert.Single(asked);
+
+            // Carrying the driver's own words, which are what anyone searching for the problem
+            // will have to go on.
+            Assert.Contains("refused", asked[0]);
+
+            // Dismissed, the application is still usable for everything that is not the pen --
+            // and, since this is the bug underneath, the canvas is still being drawn.
+            Assert.True(window.IsPresenting);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void The_way_out_offered_by_the_dialog_is_taken()
+    {
+        // The dialog is worth having only because it is actionable. The usual cause is another
+        // application holding the tablet, so one answer is to read it through Windows instead --
+        // and that answer has to actually change which driver is read.
+        OnTheUiThread.Run(() =>
+        {
+            // Once, and then let it go: the second session is refused as well, so an answer that
+            // never changed would ask again forever.
+            var (window, asked) = RefusedPen(
+                n => n == 1 ? PenProblemChoice.UseFallback : PenProblemChoice.Dismiss);
+
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(InputApi.AvaloniaPointer, window.ApiForTest);
+
+            // And it asked again when that failed too, rather than going quiet on a window whose
+            // pen still does not work.
+            Assert.Equal(2, asked.Count);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Trying_again_opens_the_session_again()
+    {
+        // The other answer, and the one someone reaches for after closing whatever was holding
+        // the tablet. It has to restart the session rather than only close the dialog.
+        OnTheUiThread.Run(() =>
+        {
+            var (window, asked) = RefusedPen(
+                n => n <= 2 ? PenProblemChoice.Retry : PenProblemChoice.Dismiss);
+
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(3, asked.Count);
+            Assert.True(window.IsPresenting);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void The_dialog_does_not_offer_a_way_out_it_has_already_tried()
+    {
+        // Windows pen input is where the dialog sends someone whose Wintab context was taken. It
+        // is also a session that can fail on its own -- an unplugged tablet does it -- and
+        // offering it as the way out of itself would be a button that reopens what just failed.
+        OnTheUiThread.Run(() =>
+        {
+            var wintab = new PenProblemWindow(InputApi.WintabDigitizer, "held", true);
+            Assert.True(wintab.GetControl<Button>("FallbackButton").IsVisible);
+
+            var fallback = new PenProblemWindow(InputApi.AvaloniaPointer, "nothing arrives", true);
+            Assert.False(fallback.GetControl<Button>("FallbackButton").IsVisible);
+
+            // Nor one this machine has not got.
+            var alone = new PenProblemWindow(InputApi.WintabDigitizer, "held", false);
+            Assert.False(alone.GetControl<Button>("FallbackButton").IsVisible);
+
+            // Whichever is showing, one button that is showing is the one Enter presses. The
+            // visibility matters: the fallback carries IsDefault from the XAML and keeps it after
+            // being hidden, so a test that only asked which button was default would be satisfied
+            // by a dialog where Enter does nothing at all.
+            Assert.Contains(new[] { "RetryButton", "FallbackButton" },
+                            name => alone.GetControl<Button>(name)
+                                is { IsDefault: true, IsVisible: true });
         });
     }
 

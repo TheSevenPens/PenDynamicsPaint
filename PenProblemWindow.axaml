@@ -1,0 +1,56 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PenDynamicsPaint.PenProblemWindow"
+        Title="The tablet could not be opened"
+        Width="460" SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Pdl.Pane}">
+
+    <!-- Said out loud, in front of the document, rather than in the status line at the bottom.
+         The line was there for both times this has happened and both times it was read as the
+         drawing being broken, which is exactly what it looks like: the pen moves, the canvas
+         stays empty, and nothing says the samples never arrived. A failure that leaves the
+         application unable to do the one thing it is for is worth a dialog. -->
+    <StackPanel Margin="20" Spacing="14">
+
+        <TextBlock Text="No pen input" FontSize="14" FontWeight="SemiBold"
+                   Foreground="{DynamicResource Pdl.Text}" />
+
+        <!-- What it looks like, first. Someone reading this is looking at a canvas that will not
+             take a stroke, and the useful sentence is the one that says why rather than the one
+             that repeats what the driver said. -->
+        <TextBlock TextWrapping="Wrap" FontSize="12"
+                   Foreground="{DynamicResource Pdl.Text}"
+                   Text="The pen will not draw. Nothing is wrong with the document or the brush: the tablet could not be opened, so no pen samples are reaching the canvas." />
+
+        <TextBlock x:Name="CauseText" TextWrapping="Wrap" FontSize="12"
+                   Foreground="{DynamicResource Pdl.Text}" />
+
+        <!-- The driver's own words last, and smaller. They are worth keeping, since they are
+             what anyone searching for the problem will have to go on, and they are not what the
+             person in front of the dialog needs first. -->
+        <Border Background="{DynamicResource Pdl.PlotField}"
+                BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1"
+                CornerRadius="3" Padding="10,8">
+            <TextBlock x:Name="DriverText" TextWrapping="Wrap" FontSize="11"
+                       Foreground="{DynamicResource Pdl.SubtleText}" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <!-- Dismissing is a real answer: the application still opens, saves and exports, and
+                 a mouse can still work the rest of it. -->
+            <Button x:Name="DismissButton" Content="Carry on without a pen"
+                    Click="Dismiss_Click" />
+
+            <Button x:Name="RetryButton" Content="Try again" MinWidth="90"
+                    Click="Retry_Click" />
+
+            <!-- The way out that does not need anything else closed. Offered only when it is not
+                 already what failed. -->
+            <Button x:Name="FallbackButton" Content="Use Windows pen input" MinWidth="90"
+                    IsDefault="True" Click="Fallback_Click" />
+        </StackPanel>
+
+    </StackPanel>
+</Window>
