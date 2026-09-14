@@ -1181,10 +1181,10 @@ public class WindowTests
         // showing it, so no pen session is ever opened and no frame is ever presented.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow
+            var window = TestWindows.Track(new MainWindow
             {
                 PenOutcomeForTest = MainWindow.PenForTest.Refused,
-            };
+            });
 
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -1213,10 +1213,10 @@ public class WindowTests
         OnTheUiThread.Run(() =>
         {
             var asked = new List<string>();
-            var window = new MainWindow
+            var window = TestWindows.Track(new MainWindow
             {
                 PenOutcomeForTest = MainWindow.PenForTest.NoDriver,
-            };
+            });
 
             window.AskAboutPen = (_, error) =>
             {
@@ -1256,7 +1256,8 @@ public class WindowTests
         Func<int, PenProblemChoice> answer)
     {
         var asked = new List<string>();
-        var window = new MainWindow { PenOutcomeForTest = MainWindow.PenForTest.Refused };
+        var window = TestWindows.Track(
+            new MainWindow { PenOutcomeForTest = MainWindow.PenForTest.Refused });
 
         window.AskAboutPen = (api, error) =>
         {
