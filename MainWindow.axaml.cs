@@ -1497,31 +1497,103 @@ public partial class MainWindow : Window
         if (_apis.Count == 0) _api = null;
     }
 
+    /// <summary>Whether the frame loop is running.</summary>
+    /// <remarks>
+    /// The loop presents the document as well as draining the pen, so this is also the answer to
+    /// "is the canvas being drawn at all".
+    /// </remarks>
+    internal bool IsPresenting => _renderTimer.IsEnabled;
+
+/// <summary>What to pretend the tablet did, for a test.</summary>
+    /// <remarks>
+    /// There is no other way to reach the two failing paths from a test. Whether a driver exists
+    /// and whether it hands over a context are both properties of the machine -- on the one this
+    /// was written on, the second depends on whether another application happens to have the
+    /// tablet open. What is being checked is the window's response, which is a decision in this
+    /// file rather than a property of any driver.
+    /// </remarks>
+    internal enum PenForTest
+    {
+        /// <summary>Ask the machine, which is what the application does.</summary>
+        Real,
+
+        /// <summary>No driver at all.</summary>
+        NoDriver,
+
+        /// <summary>A driver that will not hand over a context.</summary>
+        Refused,
+    }
+
+    internal PenForTest PenOutcomeForTest { get; set; } = PenForTest.Real;
+
+    /// <summary>
+    /// Open the pen session for the chosen API, or say why it could not be opened.
+    /// </summary>
+    /// <remarks>
+    /// <b>The frame loop starts on every path out of here, including the ones that fail.</b> It
+    /// used to start only on the last line, after two early returns -- one for having no driver at
+    /// all and one for a driver that would not open -- and it is the loop that presents the
+    /// document. So a tablet that could not be opened did not leave the application penless: it
+    /// left the canvas blank, with the document never drawn and the failure explained in a status
+    /// line at the bottom of an empty window. Found when Wintab refused a context because another
+    /// application was holding the tablet.
+    /// </remarks>
     private void StartSession()
     {
-        if (_api is not { } api) return;
-
+        // Stopped for the swap, so that no tick lands on a session being disposed.
         _renderTimer.Stop();
+
         _penSession?.Stop();
         _penSession?.Dispose();
+        _penSession = null;
         _paint.EndStroke();
 
-        _penSession = api == InputApi.AvaloniaPointer
-            ? new AvaloniaPointerSession(PaintView.Host)
-            : PenSessionFactory.Create(api);
-
-        IntPtr hwnd = TryGetPlatformHandle() is { } handle ? handle.Handle : IntPtr.Zero;
-
-        if (_penSession.Start(hwnd) is { } error)
+        if (PenOutcomeForTest == PenForTest.NoDriver || _api is not { } api)
         {
-            StatusLabel.Text = error;
-            _penSession.Dispose();
-            _penSession = null;
-            return;
+            StatusLabel.Text = "No pen driver available.";
+        }
+        else if (PenOutcomeForTest == PenForTest.Refused)
+        {
+            RefusePen(api, "The pen session was refused.");
+        }
+        else
+        {
+            var session = api == InputApi.AvaloniaPointer
+                ? new AvaloniaPointerSession(PaintView.Host)
+                : PenSessionFactory.Create(api);
+
+            IntPtr hwnd = TryGetPlatformHandle() is { } handle ? handle.Handle : IntPtr.Zero;
+
+            if (session.Start(hwnd) is { } error)
+            {
+                session.Dispose();
+                RefusePen(api, error);
+            }
+            else
+            {
+                _penSession = session;
+                StatusLabel.Text = api.Label();
+            }
         }
 
-        StatusLabel.Text = api.Label();
         _renderTimer.Start();
+    }
+
+    /// <summary>Say that the tablet could not be opened, and what can be done about it.</summary>
+    /// <remarks>
+    /// The driver's own words plus a way out, because the words on their own are not actionable:
+    /// what Wintab says is "Fallback context also failed to open", which names no cause and
+    /// suggests no remedy. The usual cause is another application holding the tablet -- Clip
+    /// Studio and Photoshop both take a Wintab context and keep it for as long as they are open --
+    /// and the way out is to close that application or to read the tablet through Windows instead.
+    /// Only for Wintab: Avalonia Pointer is the fallback, so pointing at it would be a loop.
+    /// </remarks>
+    private void RefusePen(InputApi api, string error)
+    {
+        StatusLabel.Text = api == InputApi.AvaloniaPointer
+            ? error
+            : $"{error}  Another application may be holding the tablet. " +
+              "Tools > Options can read it through Avalonia Pointer instead.";
     }
 
     private void RenderTimer_Tick(object? sender, EventArgs e)

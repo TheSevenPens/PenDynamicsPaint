@@ -754,6 +754,57 @@ public class WindowTests
     }
 
     [Fact]
+    public void A_tablet_that_will_not_open_still_leaves_the_canvas_drawn()
+    {
+        // The fault this test exists for, found by running it. The frame loop presents the
+        // document as well as draining the pen, and it used to start on the last line of
+        // StartSession, after two early returns. So a Wintab context that would not open did not
+        // leave the application penless -- it left the canvas blank, the document never drawn,
+        // and a driver's complaint in the status line of an empty window.
+        //
+        // Nothing else here would have noticed. Every other window test builds a window without
+        // showing it, so no pen session is ever opened and no frame is ever presented.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow
+            {
+                PenOutcomeForTest = MainWindow.PenForTest.Refused,
+            };
+
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(window.IsPresenting,
+                        "a pen session that would not open stopped the canvas being drawn");
+
+            // And it says what can be done about it. The driver's own words are not actionable:
+            // what Wintab says is that a fallback context failed to open, which names no cause.
+            string? said = window.GetControl<TextBlock>("StatusLabel").Text;
+            Assert.Contains("Options", said);
+        });
+    }
+
+    [Fact]
+    public void No_tablet_driver_at_all_still_leaves_the_canvas_drawn()
+    {
+        // The other way out of the same method, and the same guarantee: a machine with no tablet
+        // driver installed is a machine this should still open a document on.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow
+            {
+                PenOutcomeForTest = MainWindow.PenForTest.NoDriver,
+            };
+
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(window.IsPresenting,
+                        "no driver stopped the canvas being drawn");
+        });
+    }
+
+    [Fact]
     public void The_compositing_choice_reaches_the_brush()
     {
         // A brush setting now rather than a document one. It sat on the document because it
