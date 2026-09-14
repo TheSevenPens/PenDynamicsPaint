@@ -240,8 +240,6 @@ public sealed class CurveFitter
         to with
         {
             RawPressure = from.RawPressure + (to.RawPressure - from.RawPressure) * t,
-            ProcessedPressure = from.ProcessedPressure +
-                                (to.ProcessedPressure - from.ProcessedPressure) * t,
         };
 
     private static DocumentPoint Cubic(DocumentPoint p1, DocumentPoint c1, DocumentPoint c2, DocumentPoint p2, double t)

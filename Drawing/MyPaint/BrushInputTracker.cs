@@ -91,7 +91,7 @@ public sealed class BrushInputTracker
     /// </remarks>
     public BrushInputs Peek(in StrokeSample sample)
     {
-        _values[(int)BrushInput.Pressure] = (float)sample.ProcessedPressure;
+        _values[(int)BrushInput.Pressure] = (float)sample.RawPressure;
         return new BrushInputs(_values);
     }
 
@@ -143,7 +143,7 @@ public sealed class BrushInputTracker
         }
 
         _values[(int)BrushInput.Pressure] =
-            (float)(sample.ProcessedPressure * Math.Exp(Base(brush, MyPaintSetting.PressureGainLog)));
+            (float)(sample.RawPressure * Math.Exp(Base(brush, MyPaintSetting.PressureGainLog)));
 
         _values[(int)BrushInput.Speed1] = (float)SpeedInput(_slowSpeed1, Base(brush, MyPaintSetting.Speed1Gamma));
         _values[(int)BrushInput.Speed2] = (float)SpeedInput(_slowSpeed2, Base(brush, MyPaintSetting.Speed2Gamma));

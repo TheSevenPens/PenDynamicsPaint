@@ -137,12 +137,8 @@ public interface IBrushEngine : IDisposable
     /// <see cref="BrushSettings.OpacityFor"/> turn a pressure into a mark, and it is the engine's
     /// business when and how often to call them.
     /// </param>
-    /// <param name="channel">
-    /// Which of the two pressures on the samples applies. One gesture draws both surfaces, so the
-    /// sample alone does not say.
-    /// </param>
     void DrawSegment(SKCanvas canvas, in StrokeSample from, in StrokeSample to,
-        BrushSettings brush, SKColor color, PressureChannel channel);
+        BrushSettings brush, SKColor color);
 }
 
 /// <summary>An antialiased taper between two round ends.</summary>
@@ -193,13 +189,13 @@ public sealed class RoundBrushEngine : IBrushEngine
     public void EndStroke() { }
 
     public void DrawSegment(SKCanvas canvas, in StrokeSample from, in StrokeSample to,
-        BrushSettings brush, SKColor color, PressureChannel channel)
+        BrushSettings brush, SKColor color)
     {
         // The reduction the caller used to perform. Doing it here changes nothing about the mark
         // and is the whole point of the interface taking samples: an engine that wanted pressure
         // per dab rather than per segment could call these as often as it liked.
-        double pressureFrom = from.PressureFor(channel);
-        double pressureTo = to.PressureFor(channel);
+        double pressureFrom = from.RawPressure;
+        double pressureTo = to.RawPressure;
 
         float widthFrom = brush.StrokeWidthFor(pressureFrom);
         float widthTo = brush.StrokeWidthFor(pressureTo);

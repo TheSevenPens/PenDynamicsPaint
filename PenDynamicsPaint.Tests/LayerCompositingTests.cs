@@ -33,8 +33,7 @@ public class LayerCompositingTests
         BrushSettings.Default with
         {
             Size = size,
-            PressureDrives = PressureControl.Size,
-            Compositing = compositing,
+                Compositing = compositing,
         };
 
     /// <summary>A straight opaque stroke, drawn and finished.</summary>

@@ -133,7 +133,7 @@ public sealed class MyPaintBrushEngine : IBrushEngine
     public SKRect LastSegmentBounds { get; private set; }
 
     public void DrawSegment(SKCanvas canvas, in StrokeSample from, in StrokeSample to,
-        BrushSettings brush, SKColor color, PressureChannel channel)
+        BrushSettings brush, SKColor color)
     {
         var mypaint = brush.MyPaint ?? MyPaintBrush.Default;
 
@@ -690,8 +690,6 @@ public sealed class MyPaintBrushEngine : IBrushEngine
         to with
         {
             RawPressure = from.RawPressure + (to.RawPressure - from.RawPressure) * t,
-            ProcessedPressure = from.ProcessedPressure +
-                                (to.ProcessedPressure - from.ProcessedPressure) * t,
         };
 
     public void Dispose() => _paint.Dispose();

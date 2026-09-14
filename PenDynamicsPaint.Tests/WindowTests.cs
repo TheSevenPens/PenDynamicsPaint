@@ -270,8 +270,8 @@ public class WindowTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        var section = window.GetControl<Button>("CurveSection");
-        section.Flyout!.ShowAt(section);
+        var button = window.GetControl<Button>("SizeDynamicsButton");
+        button.Flyout!.ShowAt(button);
         Dispatcher.UIThread.RunJobs();
 
         var plot = window.GetControl<Canvas>("CurvePlot");
@@ -337,15 +337,26 @@ public class WindowTests
         /// </remarks>
         public Point Centre => new(Width / 2, Height / 2);
 
-        /// <summary>Half way across the plot, and <paramref name="fraction"/> of the way up it.</summary>
+        /// <summary>
+        /// Half way across the plot, and <paramref name="fraction"/> of the way up the response.
+        /// </summary>
         /// <remarks>
+        /// <para>
         /// Horizontally the centre, because that is the one position that can be named without
         /// repeating the mapping. Vertically wherever is asked for, and for the two nodes that
         /// read the horizontal that matters: dragged to the exact centre, a node reading the
         /// wrong axis lands on the same answer as one reading the right one, and a test that only
         /// ever aims there cannot tell them apart.
+        /// </para>
+        /// <para>
+        /// The vertical does repeat the mapping, margin included, because a height has to be
+        /// exact to be asserted on. It is not the half under test anywhere it is used: the tests
+        /// that could be fooled by a wrong mapping are the ones about which axis a node reads,
+        /// and those all aim at the centre, where the margin cancels.
+        /// </para>
         /// </remarks>
-        public Point Above(double fraction) => new(Width / 2, Height * (1 - fraction));
+        public Point Above(double fraction) =>
+            new(Width / 2, Height - 6 - fraction * (Height - 12));
     }
 
     /// <summary>Type a value into a text box and commit it the way Enter does.</summary>
@@ -357,6 +368,211 @@ public class WindowTests
             RoutedEvent = InputElement.KeyDownEvent,
             Source = box,
             Key = Key.Enter,
+        });
+    }
+
+    /// <summary>The brush in the opening set whose width follows the pen.</summary>
+    private static int PressureDrivenBrush => BrushLibrary.Defaults
+        .Select((b, i) => (b, i)).First(x => x.b.SizeDynamics.Count > 0).i;
+
+    /// <summary>The one whose width does not.</summary>
+    private static int FixedWidthBrush => BrushLibrary.Defaults
+        .Select((b, i) => (b, i)).First(x => x.b.SizeDynamics.Count == 0).i;
+
+    [Fact]
+    public void The_button_on_the_size_row_says_whether_anything_drives_the_size()
+    {
+        // A dynamics panel is invisible until it is opened, so a brush that behaves oddly gives no
+        // hint that there is a panel to go and look at. The whole job of this button when it is
+        // shut is to say that there is.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var combo = window.GetControl<ComboBox>("BrushCombo");
+            var off = window.GetControl<Control>("SizeDynamicsOff");
+            var on = window.GetControl<Control>("SizeDynamicsOn");
+
+            combo.SelectedIndex = PressureDrivenBrush;
+            Assert.True(on.IsVisible, "a brush the pen drives should not show the struck circle");
+            Assert.False(off.IsVisible);
+
+            combo.SelectedIndex = FixedWidthBrush;
+            Assert.True(off.IsVisible, "a fixed-width brush should show the struck circle");
+            Assert.False(on.IsVisible);
+
+            // And it follows an edit rather than only a selection: the two are drawn by the same
+            // code, but only one of them is what someone watching the button will see change.
+            var tick = window.GetControl<CheckBox>("SizePressureCheck");
+            tick.IsChecked = true;
+
+            Assert.True(on.IsVisible);
+            Assert.False(off.IsVisible);
+        });
+    }
+
+    [Fact]
+    public void The_pressure_tick_decides_whether_the_pen_reaches_the_width()
+    {
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+
+            var tick = window.GetControl<CheckBox>("SizePressureCheck");
+            Assert.True(tick.IsChecked);
+
+            double size = window.CurrentBrush.Size;
+
+            tick.IsChecked = false;
+            Assert.Equal(0, window.CurrentBrush.SizeDynamics.Count);
+            Assert.Equal((float)size, window.CurrentBrush.StrokeWidthFor(0.2), precision: 3);
+
+            // And the settings behind the tick are put away with it. Left on show, a minimum and
+            // a curve that do nothing are four controls inviting an edit that has no effect.
+            Assert.False(window.GetControl<StackPanel>("SizePressurePanel").IsVisible);
+
+            // Switched back on, the curve it had is still there: the tick is whether the reading
+            // is heard, not whether the settings behind it exist.
+            tick.IsChecked = true;
+            Assert.True(window.GetControl<StackPanel>("SizePressurePanel").IsVisible);
+            Assert.True(window.CurrentBrush.StrokeWidthFor(0.2) < size);
+            Assert.Equal(BrushLibrary.Defaults[PressureDrivenBrush].SizeDynamics.Pressure.Curve,
+                         window.CurrentBrush.SizeDynamics.Pressure.Curve);
+        });
+    }
+
+    [Fact]
+    public void The_minimum_is_what_the_brush_keeps_at_the_lightest_touch()
+    {
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+
+            window.GetControl<Slider>("SizeMinimumSlider").Value = 50;
+
+            var brush = window.CurrentBrush;
+            Assert.Equal(0.5, brush.SizeDynamics.Pressure.Minimum, 3);
+            Assert.Equal((float)(brush.Size / 2), brush.StrokeWidthFor(0), precision: 2);
+
+            // The label says the same thing the slider does, which is the half a test can check
+            // and the half someone reading the panel actually uses.
+            Assert.Equal("50%", window.GetControl<TextBlock>("SizeMinimumLabel").Text);
+        });
+    }
+
+    [Fact]
+    public void The_floor_lifts_the_plot_with_it()
+    {
+        // Drawn from the same Apply the brush draws with, so the picture cannot disagree with the
+        // mark. The node that proves it is Start: with a floor it sits at the floor rather than on
+        // the axis, and a plot still drawing from zero would leave it in the corner.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+            window.GetControl<Slider>("SizeMinimumSlider").Value = 50;
+
+            var plot = OpenCurvePlot(window);
+            var was = window.CurrentBrush.SizeDynamics.Pressure.Curve;
+
+            // The line starts at the floor rather than on the axis. Drawn through the same Apply
+            // the width is worked out with, so a plot that showed the curve alone would draw a
+            // brush that tapers to nothing beside one that does not.
+            var line = window.GetControl<Avalonia.Controls.Shapes.Polyline>("CurveLine");
+            Assert.NotNull(line.Points);
+            Assert.InRange(line.Points![0].Y, plot.Height * 0.42, plot.Height * 0.58);
+
+            // The corner is no longer where the node is, so nothing is caught there.
+            plot.Drag(plot.BottomLeft, plot.Above(0.75));
+            Assert.Equal(was, window.CurrentBrush.SizeDynamics.Pressure.Curve);
+
+            // Half way up the left edge is.
+            plot.Drag(new Point(6, plot.Height / 2), plot.Above(0.75));
+            Assert.Equal(0.5, window.CurrentBrush.SizeDynamics.Pressure.Curve.Start, 2);
+        });
+    }
+
+    [Fact]
+    public void The_middle_node_shapes_only_the_part_above_the_floor()
+    {
+        // The floor and the exponent are not independent on the plot: with half the range taken
+        // by the floor, the curve has half the height to work in, and an exponent worked out from
+        // the full height would put the node somewhere other than where it was dragged.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+            window.GetControl<Slider>("SizeMinimumSlider").Value = 50;
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+
+            var plot = OpenCurvePlot(window);
+
+            // A straight response over a floor of a half sits three quarters up at half pressure,
+            // which is where the node is. Dragged to seven eighths, that is what it has to be.
+            plot.Drag(plot.Above(0.75), plot.Above(0.875));
+
+            Assert.Equal(0.875, window.CurrentBrush.SizeDynamics.Pressure.Apply(0.5), 2);
+        });
+    }
+
+    [Fact]
+    public void The_live_dot_sits_at_the_height_the_brush_will_use()
+    {
+        // What the curve is, against what it is doing to the pen in your hand. Reading the
+        // processed value back would put the dot on the diagonal whatever the curve was doing,
+        // which is a plot that agrees with itself and says nothing.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+            ClickButton(window.GetControl<Button>("CurveHardButton"));
+
+            var plot = OpenCurvePlot(window);
+            var dot = window.GetControl<Avalonia.Controls.Shapes.Ellipse>("CurveDot");
+
+            window.ShowCurveDot(0.5);
+            Assert.True(dot.IsVisible);
+
+            // A hard curve at half pressure is well under half the width, so the dot belongs in
+            // the lower part of the plot. Stated as a side of the middle rather than as a
+            // coordinate: a test that worked the position out would agree with a dot placed by
+            // the same wrong arithmetic.
+            double y = Canvas.GetTop(dot) + dot.Height / 2;
+            Assert.True(y > plot.Height * 0.6,
+                        $"a hard curve put the dot at {y:F0} of {plot.Height:F0}");
+
+            // And off the tablet it goes away rather than sitting at the last reading.
+            window.ShowCurveDot(0);
+            Assert.False(dot.IsVisible);
+        });
+    }
+
+    [Fact]
+    public void Opacity_follows_pressure_separately_from_size()
+    {
+        // The two halves of the Size / Opacity / Both combo this replaced, and the reason it had
+        // to go: the combo could say that pressure drove both, but the two then shared one curve
+        // and could not be shaped apart.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+
+            var opacity = window.GetControl<CheckBox>("OpacityPressureCheck");
+            var size = window.GetControl<CheckBox>("SizePressureCheck");
+
+            opacity.IsChecked = true;
+            Assert.Equal(1, window.CurrentBrush.OpacityDynamics.Count);
+            Assert.Equal(1, window.CurrentBrush.SizeDynamics.Count);
+
+            // Taking the pen off the width leaves it on the ink.
+            size.IsChecked = false;
+            Assert.Equal(1, window.CurrentBrush.OpacityDynamics.Count);
+            Assert.Equal(0, window.CurrentBrush.SizeDynamics.Count);
+
+            opacity.IsChecked = false;
+            Assert.Equal(0, window.CurrentBrush.OpacityDynamics.Count);
         });
     }
 
@@ -374,11 +590,11 @@ public class WindowTests
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
-            var was = window.CurrentBrush.Curve;
+            var was = window.CurrentBrush.SizeDynamics.Pressure.Curve;
 
             plot.Drag(plot.BottomLeft, plot.Above(0.75));
 
-            var now = window.CurrentBrush.Curve;
+            var now = window.CurrentBrush.SizeDynamics.Pressure.Curve;
 
             // Half way across, and three quarters of the way up. Start is where along the pen's
             // range the response begins, so only the first of those two numbers is an answer to
@@ -401,11 +617,11 @@ public class WindowTests
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
-            var was = window.CurrentBrush.Curve;
+            var was = window.CurrentBrush.SizeDynamics.Pressure.Curve;
 
             plot.Drag(plot.TopRight, plot.Above(0.25));
 
-            var now = window.CurrentBrush.Curve;
+            var now = window.CurrentBrush.SizeDynamics.Pressure.Curve;
 
             // Half way across, a quarter of the way up. A node reading the height gives 0.25.
             Assert.Equal(0.5, now.End, 2);
@@ -429,13 +645,13 @@ public class WindowTests
 
             // Pulled up: the brush reaches most of its width before the pen is half pressed.
             plot.Drag(plot.Centre, plot.Above(0.75));
-            double soft = window.CurrentBrush.Curve.Apply(0.5);
+            double soft = window.CurrentBrush.SizeDynamics.Pressure.Curve.Apply(0.5);
 
             // Pushed down: it holds off instead. Grabbed from three quarters up, which is where
             // the drag above left it -- a node that does not move to where it was dragged is
             // grabbed once and then lost, and this is the drag that would find that.
             plot.Drag(plot.Above(0.75), plot.Above(0.25));
-            double hard = window.CurrentBrush.Curve.Apply(0.5);
+            double hard = window.CurrentBrush.SizeDynamics.Pressure.Curve.Apply(0.5);
 
             Assert.True(soft > 0.5, $"Dragging up gave {soft:F2} at half pressure");
             Assert.True(hard < 0.5, $"Dragging down gave {hard:F2} at half pressure");
@@ -445,7 +661,7 @@ public class WindowTests
             // then lost.
             plot.Drag(plot.Above(0.25), plot.Centre);
 
-            Assert.Equal(1.0, window.CurrentBrush.Curve.Exponent, 2);
+            Assert.Equal(1.0, window.CurrentBrush.SizeDynamics.Pressure.Curve.Exponent, 2);
         });
     }
 
@@ -463,12 +679,12 @@ public class WindowTests
             var plot = OpenCurvePlot(window);
 
             plot.Drag(plot.BottomLeft, plot.Above(0.75));
-            Assert.Equal(0.5, window.CurrentBrush.Curve.Start, 2);
+            Assert.Equal(0.5, window.CurrentBrush.SizeDynamics.Pressure.Curve.Start, 2);
 
             // End dragged hard to the left, well past where Start now is.
             plot.Drag(plot.TopRight, new Point(0, 0));
 
-            var curve = window.CurrentBrush.Curve;
+            var curve = window.CurrentBrush.SizeDynamics.Pressure.Curve;
             Assert.True(curve.End >= curve.Start,
                         $"End {curve.End:F2} ended up below Start {curve.Start:F2}");
         });
@@ -486,7 +702,7 @@ public class WindowTests
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
-            var was = window.CurrentBrush.Curve;
+            var was = window.CurrentBrush.SizeDynamics.Pressure.Curve;
 
             // The top left corner, which on a default curve is nowhere near any of the three.
             // The drag then goes somewhere that would change the curve if a node had been taken:
@@ -494,7 +710,7 @@ public class WindowTests
             var empty = new Point(10, 10);
             plot.Drag(empty, plot.Above(0.25));
 
-            Assert.Equal(was, window.CurrentBrush.Curve);
+            Assert.Equal(was, window.CurrentBrush.SizeDynamics.Pressure.Curve);
 
             // And the plot is something a pointer can land on at all. Every test here raises
             // events on the canvas directly, which skips hit-testing: a Canvas with no brush is
@@ -523,21 +739,21 @@ public class WindowTests
             var start = window.GetControl<TextBox>("CurveStartBox");
 
             TypeInto(exponent, "2.5");
-            Assert.Equal(2.5, window.CurrentBrush.Curve.Exponent, 6);
+            Assert.Equal(2.5, window.CurrentBrush.SizeDynamics.Pressure.Curve.Exponent, 6);
 
             TypeInto(start, "0.3");
-            Assert.Equal(0.3, window.CurrentBrush.Curve.Start, 6);
+            Assert.Equal(0.3, window.CurrentBrush.SizeDynamics.Pressure.Curve.Start, 6);
 
             // Out of range is clamped by the brush, and the box then says what the brush says --
             // not what was asked for. A box left showing 40 for a curve of 8 is a lie about the
             // brush that will draw the next stroke.
             TypeInto(exponent, "40");
-            Assert.Equal(8.0, window.CurrentBrush.Curve.Exponent, 6);
+            Assert.Equal(8.0, window.CurrentBrush.SizeDynamics.Pressure.Curve.Exponent, 6);
             Assert.Equal("8.00", exponent.Text);
 
             // Nonsense is not an edit.
             TypeInto(start, "wide");
-            Assert.Equal(0.3, window.CurrentBrush.Curve.Start, 6);
+            Assert.Equal(0.3, window.CurrentBrush.SizeDynamics.Pressure.Curve.Start, 6);
             Assert.Equal("0.30", start.Text);
         });
     }
@@ -556,7 +772,7 @@ public class WindowTests
             double WidthAtHalfPressure(string button)
             {
                 ClickButton(window.GetControl<Button>(button));
-                return window.CurrentBrush.Curve.Apply(0.5);
+                return window.CurrentBrush.SizeDynamics.Pressure.Curve.Apply(0.5);
             }
 
             double soft = WidthAtHalfPressure("CurveSoftButton");
@@ -578,20 +794,20 @@ public class WindowTests
             {
                 ClickButton(window.GetControl<Button>(button));
 
-                Assert.Equal(0.0, window.CurrentBrush.Curve.Start, 6);
-                Assert.Equal(1.0, window.CurrentBrush.Curve.End, 6);
+                Assert.Equal(0.0, window.CurrentBrush.SizeDynamics.Pressure.Curve.Start, 6);
+                Assert.Equal(1.0, window.CurrentBrush.SizeDynamics.Pressure.Curve.End, 6);
             }
 
             // The same button from two different starting points has to land in the same place,
             // which is the property "preset" actually means.
             ClickButton(window.GetControl<Button>("CurveHardButton"));
             ClickButton(window.GetControl<Button>("CurveSoftButton"));
-            var fromHard = window.CurrentBrush.Curve;
+            var fromHard = window.CurrentBrush.SizeDynamics.Pressure.Curve;
 
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
             ClickButton(window.GetControl<Button>("CurveSoftButton"));
 
-            Assert.Equal(fromHard, window.CurrentBrush.Curve);
+            Assert.Equal(fromHard, window.CurrentBrush.SizeDynamics.Pressure.Curve);
         });
     }
 
@@ -752,8 +968,10 @@ public class WindowTests
             combo.SelectedIndex = mypaint;
             Assert.False(window.GetControl<Border>("SizeRow").IsVisible);
             Assert.False(window.GetControl<Border>("OpacityRow").IsVisible);
-            Assert.False(window.GetControl<Border>("DrivesRow").IsVisible);
-            Assert.False(window.GetControl<Button>("CurveSection").IsVisible);
+            Assert.False(window.GetControl<Border>("OpacityPressureRow").IsVisible);
+
+            // The curve went with the size row rather than needing to be hidden separately: it is
+            // inside the button on that row now, so hiding the row hides the whole of it.
 
             // And it says which file it is, in their place.
             Assert.True(window.GetControl<Border>("MyPaintRow").IsVisible);
