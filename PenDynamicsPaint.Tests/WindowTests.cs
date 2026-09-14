@@ -401,6 +401,48 @@ public class WindowTests
     }
 
     [Fact]
+    public void The_button_beside_the_brush_picker_makes_brushes()
+    {
+        // The three ways to make a brush live in the Brush menu, which is where someone looks after
+        // failing to find them. The button next to the picker is where they look first, and it is a
+        // flyout wired in XAML: nothing else in the application would notice if the handler were
+        // dropped from one of these items, and the button would open, offer the choice, and do
+        // nothing at all.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var button = window.GetControl<Button>("AddBrushButton");
+
+            var flyout = Assert.IsType<MenuFlyout>(button.Flyout);
+            var items = flyout.Items.OfType<MenuItem>().ToList();
+
+            Assert.Equal(3, items.Count);
+            Assert.Contains(items, i => (i.Header as string)?.Contains("taper") == true);
+            Assert.Contains(items, i => (i.Header as string)?.Contains("dabs") == true);
+            Assert.Contains(items, i => (i.Header as string)?.Contains("MyPaint") == true);
+
+            int before = BrushLibrary.Defaults.Count;
+
+            // Choosing one adds a brush of that kind and puts it in front of the pen. Raised as a
+            // click on the item because the flyout itself needs a popup to open into, which a
+            // headless window does not have.
+            var taper = items.First(i => (i.Header as string)!.Contains("taper"));
+            taper.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(
+                window.GetControl<ComboBox>("BrushCombo").ItemsSource).ToList();
+
+            Assert.Equal(before + 1, offered.Count);
+            Assert.Equal(BrushEngineKind.Taper, window.CurrentBrush.Engine);
+
+            var dabs = items.First(i => (i.Header as string)!.Contains("dabs"));
+            dabs.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.Equal(BrushEngineKind.Dabs, window.CurrentBrush.Engine);
+        });
+    }
+
+    [Fact]
     public void A_MyPaint_brush_hides_the_settings_it_does_not_have()
     {
         // A MyPaint brush brings its own size, opacity and pressure response, all varying per dab.

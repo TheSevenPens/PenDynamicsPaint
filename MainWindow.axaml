@@ -188,8 +188,32 @@
             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,8" Spacing="3">
 
-                    <ComboBox x:Name="BrushCombo" HorizontalAlignment="Stretch" Height="30"
-                              Margin="0,0,0,4" />
+                    <!-- The picker, with a button beside it for making one. Making a brush is
+                         choosing an engine, and that question comes up while looking at the list of
+                         brushes rather than while reading the menu bar: the menu is where someone
+                         looks after failing to find it here. The Brush menu does the same three
+                         things for anyone who does go looking there. -->
+                    <Grid ColumnDefinitions="*,4,30" Margin="0,0,0,4">
+                        <ComboBox Grid.Column="0" x:Name="BrushCombo" Height="30"
+                                  HorizontalAlignment="Stretch" />
+                        <Button Grid.Column="2" x:Name="AddBrushButton" Content="+"
+                                Width="30" Height="30" Padding="0" FontSize="17"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
+                                ToolTip.Tip="New brush">
+                            <Button.Flyout>
+                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <MenuItem Header="New taper brush"
+                                              Click="NewTaperBrush_Click" />
+                                    <MenuItem Header="New dabs brush"
+                                              Click="NewDabsBrush_Click" />
+                                    <Separator />
+                                    <MenuItem Header="From a MyPaint file..."
+                                              Click="NewMyPaintBrush_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </Grid>
 
                     <!-- What the ink does between two samples. Next to the engine because the two
                          together decide the shape of a mark: one lays it down, the other says
