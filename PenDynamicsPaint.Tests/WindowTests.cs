@@ -38,7 +38,7 @@ namespace PenDynamicsPaint.Tests;
 /// hardware, and nothing these tests are about.
 /// </para>
 /// </remarks>
-public class WindowTests
+public class WindowTests : IClassFixture<WintabWatch>
 {
     /// <summary>Press a control the way a pointer would, without needing a laid-out window.</summary>
     /// <remarks>
@@ -628,6 +628,48 @@ public class WindowTests
             TestWindows.CloseAll();
 
             Assert.False(window.IsVisible, "a tracked window was left open");
+        });
+    }
+
+    [Fact]
+    public void A_tracked_window_opens_no_pen_session_unless_it_is_asked_for()
+    {
+        // Closing the windows deals with a run that finishes. This deals with one that does not:
+        // a killed test host closes nothing, and whatever contexts it was holding are gone for
+        // good. A window that never opened one has nothing to lose.
+        //
+        // The three cases are separate promises and each can break on its own.
+        OnTheUiThread.Run(() =>
+        {
+            var ordinary = TestWindows.Track(new MainWindow());
+            Assert.Equal(MainWindow.PenForTest.NoSession, ordinary.PenOutcomeForTest);
+
+            var wanted = TestWindows.Track(new MainWindow(), withPenSession: true);
+            Assert.Equal(MainWindow.PenForTest.Real, wanted.PenOutcomeForTest);
+
+            // A test that has already said what it wants is not overruled.
+            var refused = TestWindows.Track(
+                new MainWindow { PenOutcomeForTest = MainWindow.PenForTest.Refused });
+            Assert.Equal(MainWindow.PenForTest.Refused, refused.PenOutcomeForTest);
+        });
+    }
+
+    [Fact]
+    public void A_window_set_to_open_no_session_opens_none()
+    {
+        // The other half of the promise, and the half that costs the contexts. Setting the
+        // property is worth nothing if StartSession goes on to open one anyway, and on a machine
+        // with a tablet that is invisible: the window works, the tests pass, and the driver fills
+        // up. Asked of the window rather than of the driver, because a session opened and closed
+        // again leaves the count exactly where it started.
+        OnTheUiThread.Run(() =>
+        {
+            var window = TestWindows.Track(new MainWindow());
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(window.IsVisible, "the window under test did not open");
+            Assert.False(window.HasPenSession, "a window asked for no pen session opened one");
         });
     }
 

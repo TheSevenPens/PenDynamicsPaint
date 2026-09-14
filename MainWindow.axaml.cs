@@ -1627,9 +1627,36 @@ public partial class MainWindow : Window
 
         /// <summary>A driver that will not hand over a context.</summary>
         Refused,
+
+        /// <summary>No session at all, and nothing said about it.</summary>
+        /// <remarks>
+        /// <para>
+        /// For the tests that are not about the pen, which is nearly all of them. A shown window
+        /// takes a real Wintab context from the real driver, and a context that is not closed is
+        /// never given back: a suite that opens one per test is the fastest way there is to fill
+        /// a tablet driver up. Closing the windows fixes the ordinary case; this fixes the case
+        /// where the run is killed and nothing gets to close anything.
+        /// </para>
+        /// <para>
+        /// Distinct from <see cref="NoDriver"/>, which is a machine with no tablet and says so in
+        /// front of the document. This one is not a failure and must not look like one: a test
+        /// about a brush should not have to dismiss a dialog about a tablet.
+        /// </para>
+        /// </remarks>
+        NoSession,
     }
 
     internal PenForTest PenOutcomeForTest { get; set; } = PenForTest.Real;
+
+    /// <summary>Whether a pen session is open right now.</summary>
+    /// <remarks>
+    /// For the test that checks <see cref="PenForTest.NoSession"/> really opened nothing. Every
+    /// other way of asking is indirect: the status line says different things on a machine with a
+    /// tablet and one without, and a session that was opened and closed again leaves the driver's
+    /// count where it started. The question is simply whether there is a session, so that is what
+    /// this answers.
+    /// </remarks>
+    internal bool HasPenSession => _penSession is not null;
 
     /// <summary>Which driver is being read, for a test that changes it.</summary>
     internal InputApi? ApiForTest => _api;
@@ -1677,7 +1704,13 @@ public partial class MainWindow : Window
         // from Avalonia Pointer deliberately says nothing about Tools > Options, since that is
         // where it would be sending somebody who is already there. The forced case is about what
         // a driver refusal looks like, so it states the driver.
-        if (PenOutcomeForTest == PenForTest.Refused)
+        if (PenOutcomeForTest == PenForTest.NoSession)
+        {
+            // Asked first, and it does nothing on purpose: no context is taken and no dialog is
+            // raised. The timer below still starts, because a window with no pen is still a
+            // window that has to present its document.
+        }
+        else if (PenOutcomeForTest == PenForTest.Refused)
         {
             RefusePen(InputApi.WintabDigitizer, "The pen session was refused.");
         }
