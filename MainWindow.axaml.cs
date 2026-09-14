@@ -1129,14 +1129,21 @@ public partial class MainWindow : Window
     /// reports is what the brush does.
     /// </para>
     /// <para>
-    /// Both ends of the range are left alone. Start and End are about a particular tablet -- where
-    /// its reading becomes usable and where it saturates -- and not about how a brush should feel,
-    /// so a preset that moved them would undo a calibration rather than change a response.
+    /// <b>A preset sets the whole curve</b>, range included: the full range and one exponent. The
+    /// first version moved only the exponent, on the reasoning that Start and End are a tablet's
+    /// calibration -- where its reading becomes usable, where it saturates -- and not a statement
+    /// about how a brush should feel.
+    /// </para>
+    /// <para>
+    /// That is wrong about what a preset is for. Left over the top of some other range, the button
+    /// is a modifier rather than a preset: pressing Soft gives a different curve depending on what
+    /// the brush happened to be set to, and pressing it twice from different starting points gives
+    /// two different brushes. A preset has to be somewhere you can get back to.
     /// </para>
     /// </remarks>
     private void ApplyCurvePreset(double exponent)
     {
-        EditBrush(b => b with { Curve = b.Curve with { Exponent = exponent } });
+        EditBrush(b => b with { Curve = new PressureCurve(0.0, 1.0, exponent) });
     }
 
     private void CurveSoft_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(0.55);

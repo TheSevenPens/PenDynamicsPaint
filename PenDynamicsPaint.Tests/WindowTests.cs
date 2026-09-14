@@ -279,13 +279,32 @@ public class WindowTests
             Assert.True(soft > normal, $"Soft gave {soft:F2} at half pressure against {normal:F2}");
             Assert.True(hard < normal, $"Hard gave {hard:F2} at half pressure against {normal:F2}");
 
-            // And the presets touch only the exponent. Start and End are about a particular tablet
-            // -- where its reading becomes usable and where it saturates -- so a preset that moved
-            // them would undo a calibration rather than change a response.
-            var before = BrushLibrary.Defaults[0].Curve;
+            // Default is then the straight line, which it can only be because a preset sets the
+            // range too: half pressure, half the width.
+            Assert.Equal(0.5, normal, 6);
 
-            Assert.Equal(before.Start, window.CurrentBrush.Curve.Start, 6);
-            Assert.Equal(before.End, window.CurrentBrush.Curve.End, 6);
+            // A preset is a whole curve and somewhere you can get back to. Moving only the
+            // exponent, as the first version did, leaves the button a modifier: pressing Soft
+            // gives a different curve depending on what the brush was set to, and pressing it
+            // twice from different starting points gives two different brushes.
+            foreach (var button in new[] { "CurveSoftButton", "CurveDefaultButton", "CurveHardButton" })
+            {
+                ClickButton(window.GetControl<Button>(button));
+
+                Assert.Equal(0.0, window.CurrentBrush.Curve.Start, 6);
+                Assert.Equal(1.0, window.CurrentBrush.Curve.End, 6);
+            }
+
+            // The same button from two different starting points has to land in the same place,
+            // which is the property "preset" actually means.
+            ClickButton(window.GetControl<Button>("CurveHardButton"));
+            ClickButton(window.GetControl<Button>("CurveSoftButton"));
+            var fromHard = window.CurrentBrush.Curve;
+
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+            ClickButton(window.GetControl<Button>("CurveSoftButton"));
+
+            Assert.Equal(fromHard, window.CurrentBrush.Curve);
         });
     }
 
