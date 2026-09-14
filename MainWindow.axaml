@@ -25,6 +25,26 @@
             <Setter Property="Height" Value="24" />
         </Style>
 
+        <!-- The three nodes on the pressure curve. Filled in the accent rather than the ink
+             the curve is drawn in, because the curve is a reading and these are controls: what
+             can be grabbed should not look the same as what is being shown. The ring in the plot
+             colour keeps a node legible where it sits on top of the line. -->
+        <Style Selector="Ellipse.node">
+            <Setter Property="Fill" Value="{DynamicResource Pdl.Accent}" />
+            <Setter Property="Stroke" Value="{DynamicResource Pdl.PlotField}" />
+            <Setter Property="StrokeThickness" Value="2" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style Selector="TextBox.number">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="TextAlignment" Value="Center" />
+        </Style>
+
         <!-- A row holding a combo box gets more height than one holding a label or a slider.
              A combo is a bordered box of its own, and three of them 3px apart drew two hairlines
              between each pair, which reads as dividing lines inside one tall control rather than
@@ -335,7 +355,10 @@
                             Background="{DynamicResource Pdl.PlotField}"
                             BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1"
                             CornerRadius="3" Margin="0,2">
-                        <Canvas x:Name="CurvePlot" ClipToBounds="True">
+                        <!-- Transparent rather than unset: a Canvas with no brush at all is not
+                             hit-tested, and a plot whose nodes can only be grabbed by hitting the
+                             9px ellipse itself is a plot whose nodes cannot be grabbed. -->
+                        <Canvas x:Name="CurvePlot" ClipToBounds="True" Background="Transparent">
                             <!-- Declared here rather than built in code so the theme resolves
                                  their colours. A brush looked up from code-behind has to name a
                                  theme variant to find one of these, and a shape whose Stroke came
@@ -357,32 +380,41 @@
                             <Line x:Name="CurveDotDrop" Stroke="{DynamicResource Pdl.CurveInk}"
                                   StrokeThickness="1" StrokeDashArray="2,2" Opacity="0.5"
                                   IsVisible="False" />
+
+                            <!-- The three things that can be dragged, and they sit on the curve
+                                 itself rather than beside it. Start and End are the two ends of
+                                 the response and move along the bottom and top edges; the middle
+                                 one rides the curve and pulls it up or down, which is the
+                                 exponent. Declared last so they draw over the line. -->
+                            <Ellipse x:Name="CurveStartNode" Classes="node" Width="13" Height="13" />
+                            <Ellipse x:Name="CurveBendNode" Classes="node" Width="13" Height="13" />
+                            <Ellipse x:Name="CurveEndNode" Classes="node" Width="13" Height="13" />
                         </Canvas>
                     </Border>
 
-                    <Border Classes="row">
-                        <Grid ColumnDefinitions="58,*,36">
-                            <TextBlock Grid.Column="0" Classes="name" Text="Start" />
-                            <Slider Grid.Column="1" x:Name="CurveStartSlider" Minimum="0" Maximum="1" />
-                            <TextBlock Grid.Column="2" x:Name="CurveStartLabel" Classes="value" />
-                        </Grid>
-                    </Border>
-
-                    <Border Classes="row">
-                        <Grid ColumnDefinitions="58,*,36">
-                            <TextBlock Grid.Column="0" Classes="name" Text="End" />
-                            <Slider Grid.Column="1" x:Name="CurveEndSlider" Minimum="0" Maximum="1" />
-                            <TextBlock Grid.Column="2" x:Name="CurveEndLabel" Classes="value" />
-                        </Grid>
-                    </Border>
-
-                    <Border Classes="row">
-                        <Grid ColumnDefinitions="58,*,36">
-                            <TextBlock Grid.Column="0" Classes="name" Text="Curve" />
-                            <Slider Grid.Column="1" x:Name="CurveExponentSlider" Minimum="0.1" Maximum="4" />
-                            <TextBlock Grid.Column="2" x:Name="CurveExponentLabel" Classes="value" />
-                        </Grid>
-                    </Border>
+                    <!-- The same three numbers the nodes carry, because dragging is the way to
+                         find a shape and typing is the way to set an exact one, or to copy a value
+                         from somewhere else. Enter or clicking away commits; Escape puts back what
+                         the brush says. The nodes and the boxes are two views of one thing: moving
+                         either moves the other. -->
+                    <Grid ColumnDefinitions="*,6,*,6,*" Width="218" HorizontalAlignment="Left"
+                          Margin="0,4,0,0">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Start" FontSize="11" TextAlignment="Center"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBox x:Name="CurveStartBox" Classes="number" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="2">
+                            <TextBlock Text="End" FontSize="11" TextAlignment="Center"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBox x:Name="CurveEndBox" Classes="number" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4" Spacing="2">
+                            <TextBlock Text="Curve" FontSize="11" TextAlignment="Center"
+                                       Foreground="{DynamicResource Pdl.Hint}" />
+                            <TextBox x:Name="CurveExponentBox" Classes="number" />
+                        </StackPanel>
+                    </Grid>
 
                         </StackPanel>
                             </Flyout>
