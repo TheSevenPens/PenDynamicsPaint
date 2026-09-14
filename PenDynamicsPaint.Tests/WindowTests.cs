@@ -3,6 +3,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
+using WinPenKit;
 using SkiaSharp;
 using Xunit;
 
@@ -111,6 +112,50 @@ public class WindowTests
                 Assert.Equal(shown.Color.G, used.Green);
                 Assert.Equal(shown.Color.B, used.Blue);
             }
+        });
+    }
+
+    [Fact]
+    public void The_options_dialog_opens_and_offers_the_backends_it_was_given()
+    {
+        // It crashed on being opened. The window defined its own InitializeComponent, which shadows
+        // the one Avalonia generates -- and the generated one is what assigns the fields behind
+        // x:Name, so every control in the dialog was null and the first line to touch one threw.
+        //
+        // MainWindow does not define its own, which is why only the new window broke and why
+        // nothing else in the application showed it. A window that throws on construction is the
+        // cheapest possible thing to test and there was no test that built one.
+        OnTheUiThread.Run(() =>
+        {
+            var backends = new[] { InputApi.AvaloniaPointer, InputApi.WintabDigitizer };
+
+            var dialog = new OptionsWindow(backends, InputApi.WintabDigitizer);
+
+            var combo = dialog.GetControl<ComboBox>("ApiCombo");
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(combo.ItemsSource).ToList();
+
+            Assert.Equal(backends.Select(a => a.Label()), offered);
+
+            // Opened on what is already in use, so that closing it without touching anything
+            // cannot change the backend.
+            Assert.Equal(1, combo.SelectedIndex);
+
+            // And nothing is chosen until it is: the caller acts on this, so a dialog that
+            // answered before being answered would restart the pen session on every open.
+            Assert.Null(dialog.Chosen);
+        });
+    }
+
+    [Fact]
+    public void Every_window_in_the_application_can_be_built()
+    {
+        // The general form of the fault above. Constructing a window runs its XAML, wires its
+        // controls and runs whatever the constructor does with them, and any of that can throw --
+        // which reaches the user as the application vanishing rather than as a message.
+        OnTheUiThread.Run(() =>
+        {
+            Assert.NotNull(new MainWindow());
+            Assert.NotNull(new OptionsWindow());
         });
     }
 

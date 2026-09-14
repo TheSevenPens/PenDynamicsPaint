@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Markup.Xaml;
 using WinPenKit;
 
 namespace PenDynamicsPaint;
@@ -45,8 +44,6 @@ public partial class OptionsWindow : Window
             ? "No pen backend is available."
             : "Changing this restarts the pen session.";
     }
-
-    private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
     private void Ok_Click(object? sender, RoutedEventArgs e)
     {
