@@ -265,13 +265,34 @@ public class WindowTests
     /// all for a control that has never been attached to a root. Every other test raises events on
     /// controls whose position does not matter and leaves the window unshown.
     /// </remarks>
-    private static CurvePlotUnderTest OpenCurvePlot(MainWindow window)
+    private static CurvePlotUnderTest OpenCurvePlot(MainWindow window,
+                                                    string from = "SizeDynamicsButton")
+    {
+        OpenDynamics(window, from);
+
+        return PlotOf(window);
+    }
+
+    /// <summary>Open the dynamics panel from one of the two buttons.</summary>
+    /// <remarks>
+    /// Separate from <see cref="PlotOf"/> because the plot is inside the part of the panel that
+    /// only appears once something drives the property: opening the opacity panel on a brush the
+    /// pen does not touch gives a panel with a checkbox and nothing else, which is correct and
+    /// has no plot to measure.
+    /// </remarks>
+    private static void OpenDynamics(MainWindow window, string from)
     {
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        var button = window.GetControl<Button>("SizeDynamicsButton");
+        var button = window.GetControl<Button>(from);
         button.Flyout!.ShowAt(button);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The curve plot in whichever panel is open, once it has been laid out.</summary>
+    private static CurvePlotUnderTest PlotOf(MainWindow window)
+    {
         Dispatcher.UIThread.RunJobs();
 
         var plot = window.GetControl<Canvas>("CurvePlot");
@@ -402,7 +423,7 @@ public class WindowTests
 
             // And it follows an edit rather than only a selection: the two are drawn by the same
             // code, but only one of them is what someone watching the button will see change.
-            var tick = window.GetControl<CheckBox>("SizePressureCheck");
+            var tick = window.GetControl<CheckBox>("DynamicsPressureCheck");
             tick.IsChecked = true;
 
             Assert.True(on.IsVisible);
@@ -418,7 +439,7 @@ public class WindowTests
             var window = new MainWindow();
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
-            var tick = window.GetControl<CheckBox>("SizePressureCheck");
+            var tick = window.GetControl<CheckBox>("DynamicsPressureCheck");
             Assert.True(tick.IsChecked);
 
             double size = window.CurrentBrush.Size;
@@ -429,12 +450,12 @@ public class WindowTests
 
             // And the settings behind the tick are put away with it. Left on show, a minimum and
             // a curve that do nothing are four controls inviting an edit that has no effect.
-            Assert.False(window.GetControl<StackPanel>("SizePressurePanel").IsVisible);
+            Assert.False(window.GetControl<StackPanel>("DynamicsPressurePanel").IsVisible);
 
             // Switched back on, the curve it had is still there: the tick is whether the reading
             // is heard, not whether the settings behind it exist.
             tick.IsChecked = true;
-            Assert.True(window.GetControl<StackPanel>("SizePressurePanel").IsVisible);
+            Assert.True(window.GetControl<StackPanel>("DynamicsPressurePanel").IsVisible);
             Assert.True(window.CurrentBrush.StrokeWidthFor(0.2) < size);
             Assert.Equal(BrushLibrary.Defaults[PressureDrivenBrush].SizeDynamics.Pressure.Curve,
                          window.CurrentBrush.SizeDynamics.Pressure.Curve);
@@ -449,7 +470,7 @@ public class WindowTests
             var window = new MainWindow();
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
-            window.GetControl<Slider>("SizeMinimumSlider").Value = 50;
+            window.GetControl<Slider>("DynamicsMinimumSlider").Value = 50;
 
             var brush = window.CurrentBrush;
             Assert.Equal(0.5, brush.SizeDynamics.Pressure.Minimum, 3);
@@ -457,7 +478,7 @@ public class WindowTests
 
             // The label says the same thing the slider does, which is the half a test can check
             // and the half someone reading the panel actually uses.
-            Assert.Equal("50%", window.GetControl<TextBlock>("SizeMinimumLabel").Text);
+            Assert.Equal("50%", window.GetControl<TextBlock>("DynamicsMinimumLabel").Text);
         });
     }
 
@@ -471,7 +492,7 @@ public class WindowTests
         {
             var window = new MainWindow();
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
-            window.GetControl<Slider>("SizeMinimumSlider").Value = 50;
+            window.GetControl<Slider>("DynamicsMinimumSlider").Value = 50;
 
             var plot = OpenCurvePlot(window);
             var was = window.CurrentBrush.SizeDynamics.Pressure.Curve;
@@ -503,7 +524,7 @@ public class WindowTests
         {
             var window = new MainWindow();
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
-            window.GetControl<Slider>("SizeMinimumSlider").Value = 50;
+            window.GetControl<Slider>("DynamicsMinimumSlider").Value = 50;
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
@@ -554,25 +575,145 @@ public class WindowTests
         // The two halves of the Size / Opacity / Both combo this replaced, and the reason it had
         // to go: the combo could say that pressure drove both, but the two then shared one curve
         // and could not be shaped apart.
+        //
+        // One editor serves both buttons, so the thing this has to prove is that the tick reaches
+        // the property the editor was opened on and no other. A shared panel wired to the wrong
+        // target would still tick, still draw, and still change a brush.
         OnTheUiThread.Run(() =>
         {
             var window = new MainWindow();
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
-            var opacity = window.GetControl<CheckBox>("OpacityPressureCheck");
-            var size = window.GetControl<CheckBox>("SizePressureCheck");
+            var tick = window.GetControl<CheckBox>("DynamicsPressureCheck");
 
-            opacity.IsChecked = true;
+            OpenDynamics(window, "OpacityDynamicsButton");
+            tick.IsChecked = true;
             Assert.Equal(1, window.CurrentBrush.OpacityDynamics.Count);
             Assert.Equal(1, window.CurrentBrush.SizeDynamics.Count);
 
             // Taking the pen off the width leaves it on the ink.
-            size.IsChecked = false;
+            OpenDynamics(window, "SizeDynamicsButton");
+            tick.IsChecked = false;
             Assert.Equal(1, window.CurrentBrush.OpacityDynamics.Count);
             Assert.Equal(0, window.CurrentBrush.SizeDynamics.Count);
 
-            opacity.IsChecked = false;
+            OpenDynamics(window, "OpacityDynamicsButton");
+            tick.IsChecked = false;
             Assert.Equal(0, window.CurrentBrush.OpacityDynamics.Count);
+            Assert.Equal(0, window.CurrentBrush.SizeDynamics.Count);
+        });
+    }
+
+    [Fact]
+    public void The_button_on_the_opacity_row_says_whether_anything_drives_the_opacity()
+    {
+        // The same job as the one on the size row, and worth its own test because the two buttons
+        // read two different properties through one shared panel: a button wired to the other
+        // property's count would look right for every brush whose two counts happen to agree,
+        // which is most of them.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var off = window.GetControl<Control>("OpacityDynamicsOff");
+            var on = window.GetControl<Control>("OpacityDynamicsOn");
+            var tick = window.GetControl<CheckBox>("DynamicsPressureCheck");
+
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+
+            // A brush whose width the pen drives and whose ink it does not: the case where the two
+            // buttons have to disagree.
+            Assert.True(window.GetControl<Control>("SizeDynamicsOn").IsVisible);
+            Assert.True(off.IsVisible, "nothing drives the opacity, so the struck circle belongs");
+            Assert.False(on.IsVisible);
+
+            OpenDynamics(window, "OpacityDynamicsButton");
+            tick.IsChecked = true;
+
+            Assert.True(on.IsVisible, "pressure now drives the opacity");
+            Assert.False(off.IsVisible);
+        });
+    }
+
+    [Fact]
+    public void The_heading_says_which_property_the_editor_is_open_on()
+    {
+        // One panel serves both rows and every control in it is identical either way, so the
+        // heading is the only thing on screen that says which property is being edited. Without
+        // it the panel is the same picture whichever button was pressed.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var heading = window.GetControl<TextBlock>("DynamicsHeading");
+
+            OpenDynamics(window, "SizeDynamicsButton");
+            Assert.Contains("size", heading.Text, StringComparison.OrdinalIgnoreCase);
+
+            OpenDynamics(window, "OpacityDynamicsButton");
+            Assert.Contains("opacity", heading.Text, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void Size_and_opacity_keep_their_own_curves()
+    {
+        // The whole reason the shared Curve was split in two. A panel that wrote through to one
+        // Dynamics whichever button opened it would pass every test above and still leave a brush
+        // unable to hold a soft width and a hard ink at once.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+
+            OpenDynamics(window, "OpacityDynamicsButton");
+            window.GetControl<CheckBox>("DynamicsPressureCheck").IsChecked = true;
+            ClickButton(window.GetControl<Button>("CurveHardButton"));
+
+            OpenDynamics(window, "SizeDynamicsButton");
+            ClickButton(window.GetControl<Button>("CurveSoftButton"));
+
+            var size = window.CurrentBrush.SizeDynamics.Pressure.Curve;
+            var opacity = window.CurrentBrush.OpacityDynamics.Pressure.Curve;
+
+            Assert.True(size.Exponent < 1, $"the size should have taken Soft, not {size.Exponent}");
+            Assert.True(opacity.Exponent > 1,
+                        $"the opacity should have kept Hard, not {opacity.Exponent}");
+        });
+    }
+
+    [Fact]
+    public void Dragging_a_node_with_the_opacity_panel_open_leaves_the_size_alone()
+    {
+        // The plot is one Canvas with one set of handlers, and it reads and writes whichever
+        // property the flyout was opened on. A drag that went to the size while the opacity panel
+        // was on screen would move the curve under the pointer either way: the plot would look
+        // exactly right and the wrong brush setting would change.
+        //
+        // The two curves are deliberately given different shapes first. Identical, their nodes sit
+        // in identical places, and a hit test reading the wrong curve finds the right node anyway:
+        // the test would pass with the lookup wired to either property.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
+
+            // The size response begins nine tenths of the way along the pen, so its Start node is
+            // nowhere near the bottom left corner the drag starts from.
+            OpenDynamics(window, "SizeDynamicsButton");
+            TypeInto(window.GetControl<TextBox>("CurveStartBox"), "0.9");
+
+            OpenDynamics(window, "OpacityDynamicsButton");
+            window.GetControl<CheckBox>("DynamicsPressureCheck").IsChecked = true;
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+
+            var plot = PlotOf(window);
+            var sizeWas = window.CurrentBrush.SizeDynamics.Pressure.Curve;
+
+            Assert.Equal(0.9, sizeWas.Start, 2);
+
+            plot.Drag(plot.BottomLeft, plot.Above(0.75));
+
+            Assert.Equal(0.5, window.CurrentBrush.OpacityDynamics.Pressure.Curve.Start, 2);
+            Assert.Equal(sizeWas, window.CurrentBrush.SizeDynamics.Pressure.Curve);
         });
     }
 
@@ -968,7 +1109,6 @@ public class WindowTests
             combo.SelectedIndex = mypaint;
             Assert.False(window.GetControl<Border>("SizeRow").IsVisible);
             Assert.False(window.GetControl<Border>("OpacityRow").IsVisible);
-            Assert.False(window.GetControl<Border>("OpacityPressureRow").IsVisible);
 
             // The curve went with the size row rather than needing to be hidden separately: it is
             // inside the button on that row now, so hiding the row hides the whole of it.

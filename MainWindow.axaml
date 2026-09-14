@@ -143,6 +143,138 @@
 
     </Window.Styles>
 
+    <Window.Resources>
+        <!-- One editor, shown from whichever dynamics button was pressed. Size and opacity ask
+             the same questions of the pen and answer them with the same three numbers, so a
+             second copy of this would be a second place to fix anything wrong with the first.
+             Which property is being edited is whichever button the flyout is attached to when it
+             opens; the heading says which. -->
+        <Flyout x:Key="DynamicsFlyout" Placement="RightEdgeAlignedTop"
+                FlyoutPresenterClasses="panel">
+            <StackPanel Width="250" Spacing="3">
+
+                <TextBlock x:Name="DynamicsHeading" FontSize="11"
+                           Margin="0,0,0,2"
+                           Foreground="{DynamicResource Pdl.GroupLabel}" />
+
+                <!-- One input so far. Tilt is computed and smoothed
+                     already; velocity wants a speed per sample; and
+                     randomness wants a decision about whether it
+                     varies per stroke or per dab. Each arrives as
+                     another row here and another factor in the
+                     product. -->
+                <CheckBox x:Name="DynamicsPressureCheck" FontSize="11"
+                          Content="Pen pressure" MinHeight="0"
+                          Padding="6,0,0,0" />
+
+                <StackPanel x:Name="DynamicsPressurePanel" Spacing="3">
+
+                    <!-- What is left of the brush at the lightest
+                         touch, and the one thing no curve can say: a
+                         curve that ends at zero ends at zero whatever
+                         its shape, and a nib that thins to half
+                         rather than to nothing is a different nib. -->
+                    <Border Classes="row">
+                        <Grid ColumnDefinitions="58,*,36">
+                            <TextBlock Grid.Column="0" Classes="name"
+                                       Text="Minimum" />
+                            <Slider Grid.Column="1"
+                                    x:Name="DynamicsMinimumSlider"
+                                    Minimum="0" Maximum="100" />
+                            <TextBlock Grid.Column="2"
+                                       x:Name="DynamicsMinimumLabel"
+                                       Classes="value" />
+                        </Grid>
+                    </Border>
+
+
+                <!-- Three presets, because most of the time one of them is the answer and
+                     nobody wants to solve for an exponent to get a soft nib. -->
+                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,2">
+                    <Button x:Name="CurveSoftButton" Content="Soft" FontSize="10"
+                            Padding="8,2" Click="CurveSoft_Click" />
+                    <Button x:Name="CurveDefaultButton" Content="Default" FontSize="10"
+                            Padding="8,2" Click="CurveDefault_Click" />
+                    <Button x:Name="CurveHardButton" Content="Hard" FontSize="10"
+                            Padding="8,2" Click="CurveHard_Click" />
+                </StackPanel>
+
+                <!-- Drawn rather than described. Three numbers say very little about how a
+                     brush will feel, and the shape says it at a glance.
+
+                     Square, because both axes are the same quantity on the same scale: what
+                     the pen reports against what the brush does with it. Drawn wide, equal
+                     pressures sat at unequal distances from the diagonal and the curve looked
+                     steeper than it is. -->
+                <Border Width="218" Height="218" HorizontalAlignment="Left"
+                        Background="{DynamicResource Pdl.PlotField}"
+                        BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1"
+                        CornerRadius="3" Margin="0,2">
+                    <!-- Transparent rather than unset: a Canvas with no brush at all is not
+                         hit-tested, and a plot whose nodes can only be grabbed by hitting the
+                         9px ellipse itself is a plot whose nodes cannot be grabbed. -->
+                    <Canvas x:Name="CurvePlot" ClipToBounds="True" Background="Transparent">
+                        <!-- Declared here rather than built in code so the theme resolves
+                             their colours. A brush looked up from code-behind has to name a
+                             theme variant to find one of these, and a shape whose Stroke came
+                             back null draws nothing at all: an empty plot, with no error. -->
+                        <Line x:Name="CurveDiagonal" Stroke="{DynamicResource Pdl.Divider}"
+                              StrokeThickness="1" StrokeDashArray="3,3" />
+                        <!-- No Fill. Setting one makes Avalonia close the figure, and the
+                             closing segment is stroked too: a straight line from the last
+                             point back to the first, which looks exactly like a second
+                             reference diagonal. -->
+                        <Polyline x:Name="CurveLine" Stroke="{DynamicResource Pdl.CurveInk}"
+                                  StrokeThickness="2" />
+
+                        <!-- Where the pen is on the curve, right now. The numbers say what the
+                             curve is; this says what it is doing to the pen in your hand, which
+                             is the thing that is hard to picture and easy to feel. -->
+                        <Ellipse x:Name="CurveDot" Width="9" Height="9" IsVisible="False"
+                                 Fill="{DynamicResource Pdl.CurveInk}" />
+                        <Line x:Name="CurveDotDrop" Stroke="{DynamicResource Pdl.CurveInk}"
+                              StrokeThickness="1" StrokeDashArray="2,2" Opacity="0.5"
+                              IsVisible="False" />
+
+                        <!-- The three things that can be dragged, and they sit on the curve
+                             itself rather than beside it. Start and End are the two ends of
+                             the response and move along the bottom and top edges; the middle
+                             one rides the curve and pulls it up or down, which is the
+                             exponent. Declared last so they draw over the line. -->
+                        <Ellipse x:Name="CurveStartNode" Classes="node" Width="13" Height="13" />
+                        <Ellipse x:Name="CurveBendNode" Classes="node" Width="13" Height="13" />
+                        <Ellipse x:Name="CurveEndNode" Classes="node" Width="13" Height="13" />
+                    </Canvas>
+                </Border>
+
+                <!-- The same three numbers the nodes carry, because dragging is the way to
+                     find a shape and typing is the way to set an exact one, or to copy a value
+                     from somewhere else. Enter or clicking away commits; Escape puts back what
+                     the brush says. The nodes and the boxes are two views of one thing: moving
+                     either moves the other. -->
+                <Grid ColumnDefinitions="*,6,*,6,*" Width="218" HorizontalAlignment="Left"
+                      Margin="0,4,0,0">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Start" FontSize="11" TextAlignment="Center"
+                                   Foreground="{DynamicResource Pdl.Hint}" />
+                        <TextBox x:Name="CurveStartBox" Classes="number" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="2">
+                        <TextBlock Text="End" FontSize="11" TextAlignment="Center"
+                                   Foreground="{DynamicResource Pdl.Hint}" />
+                        <TextBox x:Name="CurveEndBox" Classes="number" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="4" Spacing="2">
+                        <TextBlock Text="Curve" FontSize="11" TextAlignment="Center"
+                                   Foreground="{DynamicResource Pdl.Hint}" />
+                        <TextBox x:Name="CurveExponentBox" Classes="number" />
+                    </StackPanel>
+                </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Flyout>
+    </Window.Resources>
+
     <DockPanel>
         <!-- The commands, where an application keeps them. What was here before was a row of
              buttons and two combo boxes, which does not scale: every new command was another
@@ -312,6 +444,7 @@
                             <TextBlock Grid.Column="2" x:Name="SizeLabel" Classes="value" />
 
                             <Button Grid.Column="4" Classes="dynamics" x:Name="SizeDynamicsButton"
+                                    Flyout="{StaticResource DynamicsFlyout}"
                                     ToolTip.Tip="What the pen does to the size">
                                 <Panel>
                                     <!-- Both states are declared and one is shown, rather than
@@ -333,132 +466,6 @@
                                           Data="M 0.5,4 L 2.5,6 L 6,1.5 M 0.5,10 L 2.5,12 L 6,7.5 M 8,4.5 L 12.5,4.5 M 8,10.5 L 12.5,10.5" />
                                 </Panel>
 
-                                <Button.Flyout>
-                                    <Flyout Placement="RightEdgeAlignedTop"
-                                            FlyoutPresenterClasses="panel">
-                                        <StackPanel Width="250" Spacing="3">
-
-                                            <TextBlock Text="What drives the size" FontSize="11"
-                                                       Margin="0,0,0,2"
-                                                       Foreground="{DynamicResource Pdl.GroupLabel}" />
-
-                                            <!-- One input so far. Tilt is computed and smoothed
-                                                 already; velocity wants a speed per sample; and
-                                                 randomness wants a decision about whether it
-                                                 varies per stroke or per dab. Each arrives as
-                                                 another row here and another factor in the
-                                                 product. -->
-                                            <CheckBox x:Name="SizePressureCheck" FontSize="11"
-                                                      Content="Pen pressure" MinHeight="0"
-                                                      Padding="6,0,0,0" />
-
-                                            <StackPanel x:Name="SizePressurePanel" Spacing="3">
-
-                                                <!-- What is left of the brush at the lightest
-                                                     touch, and the one thing no curve can say: a
-                                                     curve that ends at zero ends at zero whatever
-                                                     its shape, and a nib that thins to half
-                                                     rather than to nothing is a different nib. -->
-                                                <Border Classes="row">
-                                                    <Grid ColumnDefinitions="58,*,36">
-                                                        <TextBlock Grid.Column="0" Classes="name"
-                                                                   Text="Minimum" />
-                                                        <Slider Grid.Column="1"
-                                                                x:Name="SizeMinimumSlider"
-                                                                Minimum="0" Maximum="100" />
-                                                        <TextBlock Grid.Column="2"
-                                                                   x:Name="SizeMinimumLabel"
-                                                                   Classes="value" />
-                                                    </Grid>
-                                                </Border>
-
-
-                                            <!-- Three presets, because most of the time one of them is the answer and
-                                                 nobody wants to solve for an exponent to get a soft nib. -->
-                                            <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,2">
-                                                <Button x:Name="CurveSoftButton" Content="Soft" FontSize="10"
-                                                        Padding="8,2" Click="CurveSoft_Click" />
-                                                <Button x:Name="CurveDefaultButton" Content="Default" FontSize="10"
-                                                        Padding="8,2" Click="CurveDefault_Click" />
-                                                <Button x:Name="CurveHardButton" Content="Hard" FontSize="10"
-                                                        Padding="8,2" Click="CurveHard_Click" />
-                                            </StackPanel>
-
-                                            <!-- Drawn rather than described. Three numbers say very little about how a
-                                                 brush will feel, and the shape says it at a glance.
-
-                                                 Square, because both axes are the same quantity on the same scale: what
-                                                 the pen reports against what the brush does with it. Drawn wide, equal
-                                                 pressures sat at unequal distances from the diagonal and the curve looked
-                                                 steeper than it is. -->
-                                            <Border Width="218" Height="218" HorizontalAlignment="Left"
-                                                    Background="{DynamicResource Pdl.PlotField}"
-                                                    BorderBrush="{DynamicResource Pdl.Divider}" BorderThickness="1"
-                                                    CornerRadius="3" Margin="0,2">
-                                                <!-- Transparent rather than unset: a Canvas with no brush at all is not
-                                                     hit-tested, and a plot whose nodes can only be grabbed by hitting the
-                                                     9px ellipse itself is a plot whose nodes cannot be grabbed. -->
-                                                <Canvas x:Name="CurvePlot" ClipToBounds="True" Background="Transparent">
-                                                    <!-- Declared here rather than built in code so the theme resolves
-                                                         their colours. A brush looked up from code-behind has to name a
-                                                         theme variant to find one of these, and a shape whose Stroke came
-                                                         back null draws nothing at all: an empty plot, with no error. -->
-                                                    <Line x:Name="CurveDiagonal" Stroke="{DynamicResource Pdl.Divider}"
-                                                          StrokeThickness="1" StrokeDashArray="3,3" />
-                                                    <!-- No Fill. Setting one makes Avalonia close the figure, and the
-                                                         closing segment is stroked too: a straight line from the last
-                                                         point back to the first, which looks exactly like a second
-                                                         reference diagonal. -->
-                                                    <Polyline x:Name="CurveLine" Stroke="{DynamicResource Pdl.CurveInk}"
-                                                              StrokeThickness="2" />
-
-                                                    <!-- Where the pen is on the curve, right now. The numbers say what the
-                                                         curve is; this says what it is doing to the pen in your hand, which
-                                                         is the thing that is hard to picture and easy to feel. -->
-                                                    <Ellipse x:Name="CurveDot" Width="9" Height="9" IsVisible="False"
-                                                             Fill="{DynamicResource Pdl.CurveInk}" />
-                                                    <Line x:Name="CurveDotDrop" Stroke="{DynamicResource Pdl.CurveInk}"
-                                                          StrokeThickness="1" StrokeDashArray="2,2" Opacity="0.5"
-                                                          IsVisible="False" />
-
-                                                    <!-- The three things that can be dragged, and they sit on the curve
-                                                         itself rather than beside it. Start and End are the two ends of
-                                                         the response and move along the bottom and top edges; the middle
-                                                         one rides the curve and pulls it up or down, which is the
-                                                         exponent. Declared last so they draw over the line. -->
-                                                    <Ellipse x:Name="CurveStartNode" Classes="node" Width="13" Height="13" />
-                                                    <Ellipse x:Name="CurveBendNode" Classes="node" Width="13" Height="13" />
-                                                    <Ellipse x:Name="CurveEndNode" Classes="node" Width="13" Height="13" />
-                                                </Canvas>
-                                            </Border>
-
-                                            <!-- The same three numbers the nodes carry, because dragging is the way to
-                                                 find a shape and typing is the way to set an exact one, or to copy a value
-                                                 from somewhere else. Enter or clicking away commits; Escape puts back what
-                                                 the brush says. The nodes and the boxes are two views of one thing: moving
-                                                 either moves the other. -->
-                                            <Grid ColumnDefinitions="*,6,*,6,*" Width="218" HorizontalAlignment="Left"
-                                                  Margin="0,4,0,0">
-                                                <StackPanel Grid.Column="0" Spacing="2">
-                                                    <TextBlock Text="Start" FontSize="11" TextAlignment="Center"
-                                                               Foreground="{DynamicResource Pdl.Hint}" />
-                                                    <TextBox x:Name="CurveStartBox" Classes="number" />
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="2" Spacing="2">
-                                                    <TextBlock Text="End" FontSize="11" TextAlignment="Center"
-                                                               Foreground="{DynamicResource Pdl.Hint}" />
-                                                    <TextBox x:Name="CurveEndBox" Classes="number" />
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="4" Spacing="2">
-                                                    <TextBlock Text="Curve" FontSize="11" TextAlignment="Center"
-                                                               Foreground="{DynamicResource Pdl.Hint}" />
-                                                    <TextBox x:Name="CurveExponentBox" Classes="number" />
-                                                </StackPanel>
-                                            </Grid>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Flyout>
-                                </Button.Flyout>
                             </Button>
                         </Grid>
                     </Border>
@@ -473,26 +480,32 @@
                         </Grid>
                     </Border>
 
+                    <!-- Opacity, and what the pen has to say about it. The same arrangement as
+                         Size above and the same editor behind the button, because it is the same
+                         question asked of a different property. -->
                     <Border Classes="row" x:Name="OpacityRow">
-                        <Grid ColumnDefinitions="58,*,36">
+                        <Grid ColumnDefinitions="58,*,36,4,22">
                             <TextBlock Grid.Column="0" Classes="name" Text="Opacity" />
                             <Slider Grid.Column="1" x:Name="BrushOpacitySlider" Minimum="0" Maximum="100" />
                             <TextBlock Grid.Column="2" x:Name="BrushOpacityLabel" Classes="value" />
-                        </Grid>
-                    </Border>
 
+                            <Button Grid.Column="4" Classes="dynamics" x:Name="OpacityDynamicsButton"
+                                    Flyout="{StaticResource DynamicsFlyout}"
+                                    ToolTip.Tip="What the pen does to the opacity">
+                                <Panel>
+                                    <Path x:Name="OpacityDynamicsOff" Width="13" Height="13"
+                                          Stretch="Uniform"
+                                          Stroke="{DynamicResource Pdl.SubtleText}"
+                                          StrokeThickness="1.3"
+                                          Data="M 1,7 A 6,6 0 1 1 13,7 A 6,6 0 1 1 1,7 M 2.8,2.8 L 11.2,11.2" />
 
-                    <!-- What is left of the old Size / Opacity / Both combo. Its size half is
-                         now a tick in the Size dynamics panel; this is the other half, kept so
-                         that nothing a brush can do becomes unreachable. Under the slider it
-                         belongs to rather than in a row of its own with a second Opacity label,
-                         and it goes when opacity gets a dynamics button like the one above.
-                         Until then an opacity curve is whichever one the brush was built with. -->
-                    <Border Classes="row" x:Name="OpacityPressureRow">
-                        <Grid ColumnDefinitions="58,*">
-                            <CheckBox Grid.Column="1" x:Name="OpacityPressureCheck" FontSize="11"
-                                      Content="follows pressure" MinHeight="0"
-                                      VerticalAlignment="Center" Padding="6,0,0,0" />
+                                    <Path x:Name="OpacityDynamicsOn" Width="13" Height="13"
+                                          Stretch="Uniform" IsVisible="False"
+                                          Stroke="{DynamicResource Pdl.Accent}"
+                                          StrokeThickness="1.6"
+                                          Data="M 0.5,4 L 2.5,6 L 6,1.5 M 0.5,10 L 2.5,12 L 6,7.5 M 8,4.5 L 12.5,4.5 M 8,10.5 L 12.5,10.5" />
+                                </Panel>
+                            </Button>
                         </Grid>
                     </Border>
 
