@@ -35,8 +35,13 @@ public class WashCompositingTests
     private static PaintSession Stroke(StrokeCompositing mode, double pressure,
                                        double spacing = 0.5, double size = 40)
     {
-        var session = new PaintSession(240, 200) { Compositing = mode };
-        var brush = BrushSettings.Default with { Size = size, PressureDrives = PressureControl.Opacity };
+        var session = new PaintSession(240, 200);
+        var brush = BrushSettings.Default with
+        {
+            Size = size,
+            PressureDrives = PressureControl.Opacity,
+            Compositing = mode,
+        };
 
         for (double x = 40; x <= 200; x += spacing)
             session.AddSample(x, 100, pressure, brush);
@@ -105,7 +110,7 @@ public class WashCompositingTests
     {
         // The difference between alpha-darken within the layer and simply capping the stroke at one
         // opacity. Each point should show what its own pressure asked for, so a ramp stays a ramp.
-        var session = new PaintSession(400, 200) { Compositing = StrokeCompositing.Wash };
+        var session = new PaintSession(400, 200);
         var brush = BrushSettings.Default with { Size = 30, PressureDrives = PressureControl.Opacity };
 
         for (double x = 40; x <= 360; x += 0.5)
@@ -129,7 +134,7 @@ public class WashCompositingTests
         // A washed stroke replayed directly would let its overlaps accumulate, so undoing a later
         // stroke would darken an earlier one. That reads as a rendering fault and is really a
         // bookkeeping one.
-        var session = new PaintSession(240, 200) { Compositing = StrokeCompositing.Wash };
+        var session = new PaintSession(240, 200);
         var brush = BrushSettings.Default with { Size = 40, PressureDrives = PressureControl.Opacity };
 
         for (double x = 40; x <= 200; x += 0.5) session.AddSample(x, 100, 0.15, brush);

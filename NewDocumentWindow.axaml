@@ -1,0 +1,31 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PenDynamicsPaint.NewDocumentWindow"
+        Title="New document"
+        Width="360" SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Pdl.Pane}">
+
+    <StackPanel Margin="20" Spacing="16">
+
+        <StackPanel Spacing="6">
+            <TextBlock Text="Size" FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Pdl.Text}" />
+
+            <!-- Named sizes rather than two number boxes. A document size is picked once and
+                 almost always from the handful of shapes a screen comes in; typing a width and a
+                 height is the rarer case and can be added when something asks for it. -->
+            <ListBox x:Name="SizeList" Height="150" FontSize="12" />
+
+            <TextBlock x:Name="SizeDetail" FontSize="11" Margin="0,2,0,0"
+                       Foreground="{DynamicResource Pdl.SubtleText}" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Cancel" MinWidth="80" Click="Cancel_Click" />
+            <Button Content="Create" MinWidth="80" IsDefault="True" Click="Create_Click" />
+        </StackPanel>
+
+    </StackPanel>
+</Window>

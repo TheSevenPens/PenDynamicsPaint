@@ -44,6 +44,25 @@ public partial class MainWindow : Window
 
     private IPenSession? _penSession;
     private IReadOnlyList<InputApi> _apis = [];
+
+    /// <summary>The backend in use, chosen in Tools &gt; Options.</summary>
+    /// <remarks>
+    /// A field rather than the selection of a combo box, because there is no combo box on the
+    /// window any more: this is which driver the tablet is read through and it is set once.
+    /// </remarks>
+    private InputApi? _api;
+
+    /// <summary>The last pressure the pen reported, for the dot on the curve.</summary>
+    private double _livePressure;
+
+    /// <summary>When that reading arrived, so a stale one can be let go of.</summary>
+    /// <remarks>
+    /// A pen held still sends nothing, so the reading cannot simply be cleared on a tick that
+    /// drains no points -- the dot would blink out whenever the hand paused. A pen lifted out of
+    /// range also sends nothing, and then the dot would stick at whatever it last read. A timeout
+    /// tells the two apart: longer than a pause between packets, shorter than anyone would notice.
+    /// </remarks>
+    private readonly System.Diagnostics.Stopwatch _pressureAge = System.Diagnostics.Stopwatch.StartNew();
     private PaintSession _paint = null!;
     private bool _fitted;
 
@@ -113,6 +132,17 @@ public partial class MainWindow : Window
         LayerList.SelectionChanged += (_, _) =>
         {
             if (_syncingLayers || LayerList.SelectedIndex < 0) return;
+
+            // The last row is the paper, which is not a layer and cannot be the active one. Put the
+            // selection back where it was rather than letting it sit on something undrawable.
+            if (LayerList.SelectedIndex >= _layerRows.Count)
+            {
+                _syncingLayers = true;
+                LayerList.SelectedIndex = ToRow(_paint.ActiveLayerIndex);
+                _syncingLayers = false;
+                return;
+            }
+
             _paint.SetActiveLayer(ToStackIndex(LayerList.SelectedIndex));
             ShowSelectedLayer();
         };
@@ -127,21 +157,9 @@ public partial class MainWindow : Window
             PaintView.Invalidate();
         };
 
-        LayerNameBox.PropertyChanged += (_, e) =>
-        {
-            if (e.Property.Name != "Text" || _syncingLayers) return;
-            if (!_paint.RenameLayer(_paint.ActiveLayerIndex, LayerNameBox.Text ?? "")) return;
-            RefreshLayerRow(_paint.ActiveLayerIndex);
-        };
-
         RebuildLayerList();
 
-        CompositingCombo.ItemsSource = new[] { "Wash", "Direct" };
-        CompositingCombo.SelectedIndex = 0;
-        CompositingCombo.SelectionChanged += (_, _) =>
-            _paint.Compositing = CompositingCombo.SelectedIndex == 1
-                ? StrokeCompositing.Direct
-                : StrokeCompositing.Wash;
+
 
         // Tunnelling, not bubbling. A ComboBox swallows Space to open itself and a ListBox
         // swallows Delete, so by the time a bubbling handler saw either, the shortcut would
@@ -179,7 +197,7 @@ public partial class MainWindow : Window
     private readonly List<LayerRow> _layerRows = [];
 
     /// <summary>One row of the panel: a visibility box and the layer's name.</summary>
-    private sealed record LayerRow(Control Root, CheckBox Visible, TextBlock Name);
+    private sealed record LayerRow(Control Root, CheckBox Visible, TextBlock Name, TextBox Editor);
 
     /// <summary>Panel row to stack index. The panel shows the stack upside down.</summary>
     private int ToStackIndex(int row) => _paint.Layers.Count - 1 - row;
@@ -309,21 +327,234 @@ public partial class MainWindow : Window
                 FontSize = 12,
             };
 
+            // Sits in the same place as the label and takes over from it. Renaming used to be a
+            // text box further down the panel, which meant the name being edited and the name in
+            // the list were two controls showing the same thing in different places.
+            var editor = new TextBox
+            {
+                Text = layer.Name,
+                FontSize = 12,
+                Padding = new Thickness(2, 0),
+                MinHeight = 0,
+                Height = 20,
+                IsVisible = false,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
             var root = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 6,
-                Children = { visible, name },
+                Children = { visible, name, editor },
             };
 
-            _layerRows.Add(new LayerRow(root, visible, name));
+            var row = new LayerRow(root, visible, name, editor);
+
+            root.DoubleTapped += (_, e) =>
+            {
+                e.Handled = true;
+                BeginRename(index);
+            };
+
+            editor.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter) CommitRename(index, keep: true);
+                else if (e.Key == Key.Escape) CommitRename(index, keep: false);
+                else return;
+
+                e.Handled = true;
+            };
+
+            // Clicking elsewhere is a way of saying the editing is finished, and the least
+            // surprising reading of it is to keep what was typed rather than throw it away.
+            editor.LostFocus += (_, _) =>
+            {
+                if (editor.IsVisible) CommitRename(index, keep: true);
+            };
+
+            root.ContextMenu = LayerMenu(index);
+
+            _layerRows.Add(row);
         }
 
-        LayerList.ItemsSource = _layerRows.Select(r => r.Root).ToList();
+        // The paper, under everything, where the bottom of the stack is. It is not a layer and
+        // has no row in _layerRows: nothing selects it, nothing draws on it, and the commands that
+        // act on a layer would all have to refuse. It is here because this is where someone looks
+        // for the colour behind their painting.
+        var rows = _layerRows.Select(r => r.Root).ToList();
+        rows.Add(PaperRow());
+
+        LayerList.ItemsSource = rows;
         LayerList.SelectedIndex = ToRow(_paint.ActiveLayerIndex);
         _syncingLayers = false;
 
         ShowSelectedLayer();
+    }
+
+    /// <summary>The row standing for the paper, at the bottom of the stack.</summary>
+    /// <remarks>
+    /// Deliberately not a <c>Layer</c>. A layer holds pixels that can be drawn on, undone, merged
+    /// and reordered; the paper is one colour filling the document, and making it a real layer
+    /// would mean a full-size bitmap of a single colour and four commands that have to refuse to
+    /// work on it.
+    /// </remarks>
+    private Control PaperRow()
+    {
+        var swatch = new Border
+        {
+            Width = 14,
+            Height = 14,
+            CornerRadius = new CornerRadius(2),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0x00, 0x00, 0x00)),
+            Background = new SolidColorBrush(
+                Color.FromArgb(255, _paint.Paper.Red, _paint.Paper.Green, _paint.Paper.Blue)),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        // No explicit colour. The layer rows above take the list's own foreground and this has to
+        // match them; naming one here means picking a colour for a surface whose colour is the
+        // theme's business, and getting it wrong makes the row invisible rather than merely wrong.
+        var label = new TextBlock
+        {
+            Text = "Paper",
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.75,
+        };
+
+        var root = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children = { swatch, label },
+        };
+
+        var menu = new ContextMenu();
+
+        foreach (var (name, colour) in Papers)
+        {
+            var item = new MenuItem { Header = name };
+            item.Click += (_, _) => ChoosePaper(colour);
+            menu.Items.Add(item);
+        }
+
+        root.ContextMenu = menu;
+        root.DoubleTapped += (_, e) => { e.Handled = true; menu.Open(root); };
+
+        ToolTip.SetTip(root, "The colour behind every layer. Right-click to change it.");
+
+        return root;
+    }
+
+    /// <summary>The papers on offer.</summary>
+    /// <remarks>
+    /// Shades rather than colours, because this is the ground a painting sits on rather than
+    /// something drawn with. The same argument as the ink palette: a picker is its own piece of
+    /// work, and having more than one is the thing that matters first.
+    /// </remarks>
+    private static readonly (string Name, SKColor Colour)[] Papers =
+    [
+        ("White",      new SKColor(0xFF, 0xFF, 0xFF)),
+        ("Off white",  new SKColor(0xF7, 0xF3, 0xEA)),
+        ("Cream",      new SKColor(0xF2, 0xE8, 0xCF)),
+        ("Grey",       new SKColor(0xC8, 0xC8, 0xC8)),
+        ("Slate",      new SKColor(0x3A, 0x3F, 0x4A)),
+        ("Black",      new SKColor(0x12, 0x12, 0x12)),
+    ];
+
+    private void ChoosePaper(SKColor colour)
+    {
+        _paint.Paper = colour;
+
+        RebuildLayerList();
+        PaintView.Invalidate();
+
+        StatusLabel.Text = $"Paper: {Papers.First(p => p.Colour == colour).Name}";
+    }
+
+    /// <summary>What can be done to one particular layer.</summary>
+    /// <remarks>
+    /// Built per row and closed over that row's index, so every item acts on the layer it was
+    /// opened from rather than on whichever one happens to be selected. That is the difference
+    /// between a context menu and a toolbar, and it is the whole reason these moved.
+    /// </remarks>
+    private ContextMenu LayerMenu(int stackIndex)
+    {
+        var menu = new ContextMenu();
+
+        MenuItem Item(string header, Action act, bool enabled = true)
+        {
+            var item = new MenuItem { Header = header, IsEnabled = enabled };
+            item.Click += (_, _) => act();
+            return item;
+        }
+
+        // Right-clicking a layer selects it first. Otherwise the menu acts on the row it was
+        // opened from while the panel below goes on showing a different one.
+        menu.Opened += (_, _) =>
+        {
+            _paint.SetActiveLayer(stackIndex);
+            LayerList.SelectedIndex = ToRow(stackIndex);
+            ShowSelectedLayer();
+        };
+
+        menu.Items.Add(Item("Rename", () => BeginRename(stackIndex)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Delete", () => { _paint.RemoveLayer(stackIndex); AfterLayerChange(); },
+                            _paint.Layers.Count > 1));
+        menu.Items.Add(Item("Merge down", () => { _paint.MergeDown(stackIndex); AfterLayerChange(); },
+                            stackIndex > 0));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Raise", () => { _paint.MoveLayer(stackIndex, stackIndex + 1); AfterLayerChange(); },
+                            stackIndex < _paint.Layers.Count - 1));
+        menu.Items.Add(Item("Lower", () => { _paint.MoveLayer(stackIndex, stackIndex - 1); AfterLayerChange(); },
+                            stackIndex > 0));
+
+        return menu;
+    }
+
+    private void AfterLayerChange()
+    {
+        RebuildLayerList();
+        PaintView.Invalidate();
+    }
+
+    /// <summary>Turn a layer's name in the list into something that can be typed in.</summary>
+    private void BeginRename(int stackIndex)
+    {
+        int row = ToRow(stackIndex);
+        if (row < 0 || row >= _layerRows.Count) return;
+
+        var entry = _layerRows[row];
+
+        entry.Editor.Text = _paint.Layers[stackIndex].Name;
+        entry.Name.IsVisible = false;
+        entry.Editor.IsVisible = true;
+
+        entry.Editor.Focus();
+        entry.Editor.SelectAll();
+    }
+
+    /// <summary>Finish renaming, keeping what was typed or dropping it.</summary>
+    private void CommitRename(int stackIndex, bool keep)
+    {
+        int row = ToRow(stackIndex);
+        if (row < 0 || row >= _layerRows.Count) return;
+
+        var entry = _layerRows[row];
+
+        entry.Editor.IsVisible = false;
+        entry.Name.IsVisible = true;
+
+        if (!keep) return;
+
+        // A layer with no name at all is a row with nothing in it, so an empty box is treated as
+        // having changed nothing rather than as a name.
+        string typed = entry.Editor.Text ?? "";
+        if (typed.Trim().Length == 0) return;
+
+        if (_paint.RenameLayer(stackIndex, typed)) entry.Name.Text = typed;
     }
 
     /// <summary>Put one row's name back in step, without rebuilding and losing the selection.</summary>
@@ -339,15 +570,10 @@ public partial class MainWindow : Window
         _syncingLayers = true;
 
         var layer = _paint.ActiveLayer;
-        LayerNameBox.Text = layer.Name;
         LayerOpacitySlider.Value = layer.Opacity * 100;
         LayerOpacityLabel.Text = $"{layer.Opacity * 100:F0}%";
 
-        // Disabled rather than absent, so the panel does not change shape as the selection moves.
-        DeleteLayerButton.IsEnabled = _paint.Layers.Count > 1;
-        MergeLayerButton.IsEnabled = _paint.ActiveLayerIndex > 0;
-        RaiseLayerButton.IsEnabled = _paint.ActiveLayerIndex < _paint.Layers.Count - 1;
-        LowerLayerButton.IsEnabled = _paint.ActiveLayerIndex > 0;
+
 
         _syncingLayers = false;
     }
@@ -395,7 +621,12 @@ public partial class MainWindow : Window
     /// already set on it are kept: those belong to how the pen is read, and a brush file has
     /// nothing to say about them.
     /// </remarks>
-    private async void LoadMyPaintBrush_Click(object? sender, RoutedEventArgs e)
+    /// <summary>Ask for a <c>.myb</c> and read it, or null if there is nothing to read.</summary>
+    /// <remarks>
+    /// Shared by the two things that want one, which are not the same thing: changing which file a
+    /// MyPaint brush is, and making a new brush out of a file.
+    /// </remarks>
+    private async Task<MyPaintBrush?> PickMyPaintBrush()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -407,7 +638,7 @@ public partial class MainWindow : Window
             ],
         });
 
-        if (files.Count == 0) return;
+        if (files.Count == 0) return null;
 
         var file = files[0];
         try
@@ -418,19 +649,11 @@ public partial class MainWindow : Window
             string name = Path.GetFileNameWithoutExtension(file.Name);
             var brush = MyPaintBrush.Parse(await reader.ReadToEndAsync(), name);
 
-            EditBrush(b => b with
-            {
-                Name = name,
-                Engine = BrushEngineKind.MyPaint,
-                MyPaint = brush,
-            });
-
-            BrushCombo.ItemsSource = _brushes.Select(b => b.Name).ToList();
-            ShowBrush();
-
             StatusLabel.Text = brush.Ignored.Count == 0
                 ? $"{name}: loaded"
                 : $"{name}: loaded, {brush.Ignored.Count} setting(s) not acted on";
+
+            return brush;
         }
         catch (Exception error) when (error is FormatException or IOException)
         {
@@ -438,7 +661,121 @@ public partial class MainWindow : Window
             // about, and the two reasons -- the old text format, and a file that cannot be read --
             // are both things the user can do something about.
             StatusLabel.Text = $"{file.Name}: {error.Message}";
+            return null;
         }
+    }
+
+    /// <summary>Put a different file behind the MyPaint brush that is selected.</summary>
+    private async void LoadMyPaintBrush_Click(object? sender, RoutedEventArgs e)
+    {
+        if (await PickMyPaintBrush() is not { } loaded) return;
+
+        EditBrush(b => b with { Name = loaded.Name, MyPaint = loaded });
+
+        RefreshBrushList();
+        ShowBrush();
+    }
+
+    /// <summary>How a brush is named in the picker: its own name and what kind it is.</summary>
+    /// <remarks>
+    /// The kind decides which settings a brush even has, and it used to be readable only by opening
+    /// the panel and noticing which controls had gone. A list of bare names says nothing about why
+    /// two entries offer different things.
+    /// </remarks>
+    private static string Describe(BrushSettings brush) => $"{brush.Name}  ({Kind(brush.Engine)})";
+
+    private static string Kind(BrushEngineKind engine) => engine switch
+    {
+        BrushEngineKind.Dabs => "Dabs",
+        BrushEngineKind.MyPaint => "MyPaint",
+        _ => "Taper",
+    };
+
+    /// <summary>Rebuild the picker without letting it change which brush is selected.</summary>
+    /// <remarks>
+    /// Assigning ItemsSource resets the selection, which raises SelectionChanged, which sets
+    /// _brushIndex from whatever the combo has just decided -- so refreshing the list while
+    /// pointing at a new brush landed back on the first one, and adding a brush selected something
+    /// else. The flag is the same one the rest of the panel uses to tell its own writes from a
+    /// person's.
+    /// </remarks>
+    private void RefreshBrushList()
+    {
+        _syncingBrush = true;
+
+        BrushCombo.ItemsSource = _brushes.Select(Describe).ToList();
+        BrushCombo.SelectedIndex = _brushIndex;
+
+        _syncingBrush = false;
+    }
+
+    /// <summary>Add a brush to the set and put it in front of the pen.</summary>
+    private void AddBrush(BrushSettings brush)
+    {
+        _brushes.Add(brush);
+        _brushIndex = _brushes.Count - 1;
+
+        RefreshBrushList();
+        ShowBrush();
+
+        StatusLabel.Text = $"New brush: {brush.Name}";
+    }
+
+    /// <summary>Make a brush of the given kind, for a test that needs one added.</summary>
+    /// <remarks>
+    /// The menu items are what a person uses; this is the same call without the menu, so a test
+    /// can check that adding a brush adds one rather than replacing what was selected.
+    /// </remarks>
+    internal void NewBrushForTest(BrushEngineKind engine) =>
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName($"{Kind(engine)} brush"),
+            Engine = engine,
+            Size = 24,
+        });
+
+    /// <summary>A name not already taken, so two brushes are never the same row twice.</summary>
+    private string UnusedName(string stem)
+    {
+        if (_brushes.All(b => b.Name != stem)) return stem;
+
+        for (int n = 2; ; n++)
+        {
+            string candidate = $"{stem} {n}";
+            if (_brushes.All(b => b.Name != candidate)) return candidate;
+        }
+    }
+
+    private void NewTaperBrush_Click(object? sender, RoutedEventArgs e) =>
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName("Taper brush"),
+            Engine = BrushEngineKind.Taper,
+            Size = 24,
+            Interpolation = StrokeInterpolation.Curved,
+        });
+
+    private void NewDabsBrush_Click(object? sender, RoutedEventArgs e) =>
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName("Dabs brush"),
+            Engine = BrushEngineKind.Dabs,
+            Size = 24,
+            Spacing = 0.25,
+        });
+
+    /// <summary>Make a new brush out of a <c>.myb</c>, rather than turning a brush into one.</summary>
+    private async void NewMyPaintBrush_Click(object? sender, RoutedEventArgs e)
+    {
+        if (await PickMyPaintBrush() is not { } loaded) return;
+
+        AddBrush(BrushSettings.Default with
+        {
+            Name = UnusedName(loaded.Name),
+            Engine = BrushEngineKind.MyPaint,
+            MyPaint = loaded,
+            Interpolation = StrokeInterpolation.Curved,
+        });
     }
 
     // -- The document on disk ------------------------------------
@@ -513,7 +850,6 @@ public partial class MainWindow : Window
         var old = _paint;
 
         _paint = session;
-        _paint.Compositing = old.Compositing;
 
         // The ink belongs to the application rather than to the file, so it is re-applied to the
         // session that replaced the old one -- which would otherwise start on its own default.
@@ -588,6 +924,59 @@ public partial class MainWindow : Window
         {
             StatusLabel.Text = $"{file.Name}: {error.Message}";
         }
+    }
+
+    // -- Menu -----------------------------------------------------
+
+    private async void New_Click(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new NewDocumentWindow();
+        await dialog.ShowDialog(this);
+
+        if (dialog.Chosen is not { } size) return;
+
+        AdoptDocument(new PaintSession(size.Width, size.Height), from: null);
+        StatusLabel.Text = $"New document, {size.Width} x {size.Height}";
+    }
+
+    private async void SaveAs_Click(object? sender, RoutedEventArgs e)
+    {
+        // Forget where it came from, so Save asks again and then follows the answer.
+        _documentFile = null;
+        await SaveDocument();
+    }
+
+    private void Exit_Click(object? sender, RoutedEventArgs e) => Close();
+
+    private void Undo_Click(object? sender, RoutedEventArgs e)
+    {
+        _paint.Undo();
+        PaintView.Invalidate();
+    }
+
+    private void ClearLayer_Click(object? sender, RoutedEventArgs e)
+    {
+        _paint.ClearActiveLayer();
+        PaintView.Invalidate();
+    }
+
+    private void ClearDocument_Click(object? sender, RoutedEventArgs e)
+    {
+        _paint.Clear();
+        PaintView.Invalidate();
+    }
+
+    private async void Options_Click(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new OptionsWindow(_apis, _api);
+        await dialog.ShowDialog(this);
+
+        // Nothing to do if it was cancelled, or if the answer is what is already running:
+        // restarting a pen session drops whatever is in flight for no reason.
+        if (dialog.Chosen is not { } chosen || chosen == _api) return;
+
+        _api = chosen;
+        StartSession();
     }
 
     // -- Keyboard -------------------------------------------------
@@ -668,7 +1057,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private void WireBrushPanel()
     {
-        BrushCombo.ItemsSource = _brushes.Select(b => b.Name).ToList();
+        BrushCombo.ItemsSource = _brushes.Select(Describe).ToList();
         BrushCombo.SelectedIndex = 0;
         BrushCombo.SelectionChanged += (_, _) =>
         {
@@ -677,10 +1066,12 @@ public partial class MainWindow : Window
             ShowBrush();
         };
 
-        EngineCombo.ItemsSource = new[] { "Taper", "Dabs", "MyPaint" };
-        EngineCombo.SelectionChanged += (_, _) => EditBrush(b => b with
+        CompositingCombo.ItemsSource = new[] { "Wash", "Direct" };
+        CompositingCombo.SelectionChanged += (_, _) => EditBrush(b => b with
         {
-            Engine = (BrushEngineKind)Math.Max(0, EngineCombo.SelectedIndex),
+            Compositing = CompositingCombo.SelectedIndex == 1
+                ? StrokeCompositing.Direct
+                : StrokeCompositing.Wash,
         });
 
         InterpolationCombo.ItemsSource = new[] { "Straight", "Curved" };
@@ -763,8 +1154,8 @@ public partial class MainWindow : Window
 
         var b = Brush;
         BrushCombo.SelectedIndex = _brushIndex;
-        EngineCombo.SelectedIndex = (int)b.Engine;
         InterpolationCombo.SelectedIndex = b.Interpolation == StrokeInterpolation.Curved ? 1 : 0;
+        CompositingCombo.SelectedIndex = b.Compositing == StrokeCompositing.Direct ? 1 : 0;
         DrivesCombo.SelectedIndex = (int)b.PressureDrives;
 
         SizeSlider.Value = b.Size;
@@ -773,10 +1164,14 @@ public partial class MainWindow : Window
         bool mypaint = b.Engine == BrushEngineKind.MyPaint;
 
         // A MyPaint brush brings its own size, opacity, softness, spacing and pressure response,
-        // all of them varying per dab. Leaving the sliders live would offer edits that the next
-        // dab overwrites, so they are disabled and the brush file's name stands in their place.
-        SizeRow.IsEnabled = OpacityRow.IsEnabled = DrivesRow.IsEnabled = !mypaint;
-        CurveSection.IsEnabled = !mypaint;
+        // all of them varying per dab, so none of those controls applies to one.
+        //
+        // Hidden rather than disabled. Four greyed-out rows read as something broken, or as
+        // settings that would work if only the right thing were selected; absent ones read as not
+        // applicable, which is what they are. It also makes the panel shorter for exactly the
+        // brushes that need the room.
+        SizeRow.IsVisible = OpacityRow.IsVisible = DrivesRow.IsVisible = !mypaint;
+        CurveSection.IsVisible = !mypaint;
         MyPaintRow.IsVisible = mypaint;
         MyPaintLabel.Text = b.MyPaint is { } file
             ? file.Ignored.Count == 0 ? file.Name : $"{file.Name} ({file.Ignored.Count} unused)"
@@ -833,6 +1228,76 @@ public partial class MainWindow : Window
     /// <c>Start</c> removes and the flat run at the right is where <c>End</c> has saturated -- both
     /// are the point of those two numbers and neither is obvious from a percentage.
     /// </remarks>
+    /// <summary>The curves on the three preset buttons.</summary>
+    /// <remarks>
+    /// <para>
+    /// Soft reaches full width early, so a light hand still lays a full mark and the brush feels
+    /// eager. Hard holds off, so width arrives only when the pen is genuinely leaned on and the
+    /// stroke stays fine until then. Default is the straight line between them: what the pen
+    /// reports is what the brush does.
+    /// </para>
+    /// <para>
+    /// <b>A preset sets the whole curve</b>, range included: the full range and one exponent. The
+    /// first version moved only the exponent, on the reasoning that Start and End are a tablet's
+    /// calibration -- where its reading becomes usable, where it saturates -- and not a statement
+    /// about how a brush should feel.
+    /// </para>
+    /// <para>
+    /// That is wrong about what a preset is for. Left over the top of some other range, the button
+    /// is a modifier rather than a preset: pressing Soft gives a different curve depending on what
+    /// the brush happened to be set to, and pressing it twice from different starting points gives
+    /// two different brushes. A preset has to be somewhere you can get back to.
+    /// </para>
+    /// </remarks>
+    private void ApplyCurvePreset(double exponent)
+    {
+        EditBrush(b => b with { Curve = new PressureCurve(0.0, 1.0, exponent) });
+    }
+
+    private void CurveSoft_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(0.55);
+
+    private void CurveDefault_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(1.0);
+
+    private void CurveHard_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(2.2);
+
+    /// <summary>
+    /// Put the dot where the pen is on the curve, or take it away when the pen is off the tablet.
+    /// </summary>
+    /// <remarks>
+    /// Drawn from the raw reading, because that is the axis the curve is drawn against: the dot
+    /// sits at the pressure the pen reported, at the height the brush will use. Reading the
+    /// processed value back would put the dot on the diagonal whatever the curve was doing.
+    /// </remarks>
+    private void ShowCurveDot(double rawPressure)
+    {
+        double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
+
+        if (rawPressure <= 0 || w <= 1 || h <= 1)
+        {
+            CurveDot.IsVisible = false;
+            CurveDotDrop.IsVisible = false;
+            return;
+        }
+
+        const double pad = 6;
+        double plotW = w - 2 * pad, plotH = h - 2 * pad;
+
+        double x = Math.Clamp(rawPressure, 0, 1);
+        double y = Math.Clamp(Brush.Curve.Apply(x), 0, 1);
+
+        double px = pad + x * plotW;
+        double py = h - pad - y * plotH;
+
+        Canvas.SetLeft(CurveDot, px - CurveDot.Width / 2);
+        Canvas.SetTop(CurveDot, py - CurveDot.Height / 2);
+        CurveDot.IsVisible = true;
+
+        // Down to the axis, so the reading can be read off the bottom as well as seen on the curve.
+        CurveDotDrop.StartPoint = new Point(px, py);
+        CurveDotDrop.EndPoint = new Point(px, h - pad);
+        CurveDotDrop.IsVisible = true;
+    }
+
     private void DrawCurve(PressureCurve curve)
     {
         double w = CurvePlot.Bounds.Width, h = CurvePlot.Bounds.Height;
@@ -860,26 +1325,25 @@ public partial class MainWindow : Window
     private void PopulateApis()
     {
         _apis = AvaloniaPenApis.GetAvailable();
-        ApiCombo.ItemsSource = _apis.Select(a => a.Label()).ToList();
 
         // Wintab's digitizer context where it exists: it is the finest of the available clocks
         // and the one a tablet actually reports through. Measured in WinPenKit -- one timestamp
         // per point at 1 ms, where the framework paths vary by four orders of magnitude.
-        int preferred = _apis.ToList().FindIndex(a => a == InputApi.WintabDigitizer);
-        ApiCombo.SelectedIndex = preferred >= 0 ? preferred : (_apis.Count > 0 ? 0 : -1);
-        ApiCombo.SelectionChanged += (_, _) => StartSession();
+        _api = _apis.FirstOrDefault(a => a == InputApi.WintabDigitizer,
+                                    _apis.Count > 0 ? _apis[0] : default);
+
+        if (_apis.Count == 0) _api = null;
     }
 
     private void StartSession()
     {
-        if (_apis.Count == 0 || ApiCombo.SelectedIndex < 0) return;
+        if (_api is not { } api) return;
 
         _renderTimer.Stop();
         _penSession?.Stop();
         _penSession?.Dispose();
         _paint.EndStroke();
 
-        var api = _apis[ApiCombo.SelectedIndex];
         _penSession = api == InputApi.AvaloniaPointer
             ? new AvaloniaPointerSession(PaintView.Host)
             : PenSessionFactory.Create(api);
@@ -904,6 +1368,11 @@ public partial class MainWindow : Window
         // the pen -- a zoom, a pan, the first layout pass -- and this method gives up as soon as
         // there is nothing to drain. It costs a comparison when nothing has changed.
         PaintView.PresentIfNeeded();
+
+        // Also before it, and for the same reason: the dot has to go out when the pen leaves,
+        // which is a tick with nothing on it.
+        if (_pressureAge.ElapsedMilliseconds > 150) _livePressure = 0;
+        ShowCurveDot(_livePressure);
 
         if (_penSession is null) return;
 
@@ -962,6 +1431,11 @@ public partial class MainWindow : Window
             var (docX, docY) = PaintView.ToDocument(inViewport);
 
             double pressure = maxPressure > 0 ? (double)pt.Pressure / maxPressure : 0;
+
+            // Kept for the curve plot, which shows where the pen is on it. Recorded here, where
+            // the reading is raw: this is the axis the curve is drawn against.
+            _livePressure = pressure;
+            _pressureAge.Restart();
 
             // What the pen reported, untouched. The brush's own curve is applied inside the
             // session, which is what makes a stroke keep the response it was drawn with -- there is

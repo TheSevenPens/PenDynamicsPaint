@@ -1,0 +1,35 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PenDynamicsPaint.OptionsWindow"
+        Title="Options"
+        Width="420" SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Pdl.Pane}">
+
+    <!-- Settings that are chosen once and then left alone. The pen backend was in the toolbar,
+         permanently in view, although nobody changes it twice in a session: it is which driver the
+         tablet talks through, not a drawing choice. -->
+    <StackPanel Margin="20" Spacing="16">
+
+        <StackPanel Spacing="6">
+            <TextBlock Text="Pen input" FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Pdl.Text}" />
+
+            <TextBlock TextWrapping="Wrap" FontSize="11"
+                       Foreground="{DynamicResource Pdl.Hint}"
+                       Text="Which driver the tablet is read through. Wintab is the tablet vendor's own and carries the most; Avalonia Pointer is what Windows passes to any application and needs no driver." />
+
+            <ComboBox x:Name="ApiCombo" HorizontalAlignment="Stretch" Margin="0,4,0,0" />
+
+            <TextBlock x:Name="ApiStatus" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
+                       Foreground="{DynamicResource Pdl.SubtleText}" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Cancel" MinWidth="80" Click="Cancel_Click" />
+            <Button Content="OK" MinWidth="80" IsDefault="True" Click="Ok_Click" />
+        </StackPanel>
+
+    </StackPanel>
+</Window>

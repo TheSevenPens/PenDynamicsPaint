@@ -155,6 +155,22 @@ public sealed record BrushSettings
     /// </remarks>
     public StrokeSmoothing Smoothing { get; init; } = StrokeSmoothing.None;
 
+    /// <summary>How the marks within a stroke combine with each other.</summary>
+    /// <remarks>
+    /// <para>
+    /// On the brush, alongside smoothing and interpolation, and it sat on the document first. The
+    /// argument for the document was that this decides how a stroke reaches the layer rather than
+    /// what the mark looks like, and that is the same question whichever brush drew it. In use it
+    /// is not: a marker wants its overlaps flattened and a dry-media brush wants them to build up,
+    /// and leaving the choice outside the brush means setting it again every time you switch.
+    /// </para>
+    /// <para>
+    /// It still takes effect at the start of a stroke rather than during one, since a stroke half
+    /// composited one way cannot finish the other. A stroke records its brush, so it records this.
+    /// </para>
+    /// </remarks>
+    public StrokeCompositing Compositing { get; init; } = StrokeCompositing.Wash;
+
     /// <summary>How each new stroke picks its colour.</summary>
     public ColorMode ColorMode { get; init; } = ColorMode.Black;
 

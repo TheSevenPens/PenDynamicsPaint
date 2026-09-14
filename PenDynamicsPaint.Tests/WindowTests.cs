@@ -1,8 +1,13 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
+using WinPenKit;
 using SkiaSharp;
 using Xunit;
 
@@ -50,6 +55,16 @@ public class WindowTests
                                        PointerUpdateKind.LeftButtonPressed),
             KeyModifiers.None));
     }
+
+    /// <summary>Click a button the way releasing the pointer over it would.</summary>
+    /// <remarks>
+    /// Not the same as <see cref="Press"/>. A button raises Click when the pointer is released
+    /// over it, not when it goes down, so pressing one does nothing at all -- which is how the
+    /// first version of the preset test below came to report that Soft and Default gave the same
+    /// answer. The swatches are different: they handle the press itself.
+    /// </remarks>
+    private static void ClickButton(Button button) =>
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
     [Fact]
     public void The_window_starts_with_an_ink_chosen()
@@ -115,6 +130,185 @@ public class WindowTests
     }
 
     [Fact]
+    public void The_options_dialog_opens_and_offers_the_backends_it_was_given()
+    {
+        // It crashed on being opened. The window defined its own InitializeComponent, which shadows
+        // the one Avalonia generates -- and the generated one is what assigns the fields behind
+        // x:Name, so every control in the dialog was null and the first line to touch one threw.
+        //
+        // MainWindow does not define its own, which is why only the new window broke and why
+        // nothing else in the application showed it. A window that throws on construction is the
+        // cheapest possible thing to test and there was no test that built one.
+        OnTheUiThread.Run(() =>
+        {
+            var backends = new[] { InputApi.AvaloniaPointer, InputApi.WintabDigitizer };
+
+            var dialog = new OptionsWindow(backends, InputApi.WintabDigitizer);
+
+            var combo = dialog.GetControl<ComboBox>("ApiCombo");
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(combo.ItemsSource).ToList();
+
+            Assert.Equal(backends.Select(a => a.Label()), offered);
+
+            // Opened on what is already in use, so that closing it without touching anything
+            // cannot change the backend.
+            Assert.Equal(1, combo.SelectedIndex);
+
+            // And nothing is chosen until it is: the caller acts on this, so a dialog that
+            // answered before being answered would restart the pen session on every open.
+            Assert.Null(dialog.Chosen);
+        });
+    }
+
+    [Fact]
+    public void Every_window_in_the_application_can_be_built()
+    {
+        // The general form of the fault above. Constructing a window runs its XAML, wires its
+        // controls and runs whatever the constructor does with them, and any of that can throw --
+        // which reaches the user as the application vanishing rather than as a message.
+        OnTheUiThread.Run(() =>
+        {
+            Assert.NotNull(new MainWindow());
+            Assert.NotNull(new OptionsWindow());
+        });
+    }
+
+    [Fact]
+    public void Hovering_or_pressing_a_slider_does_not_move_the_panel()
+    {
+        // Reported: clicking a size or opacity slider nudged it, and everything under it, down the
+        // panel. The thumb grew on hover, and the rows here are as tall as their content, so the
+        // row asked for two more pixels and took the rest of the column with it -- the control
+        // moved under the pointer that was reaching for it.
+        //
+        // Measured rather than looked at, because two pixels is exactly the size of fault that
+        // survives a screenshot. Any state a control can be in has to leave it asking for the same
+        // room as every other state.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.Measure(new Size(1400, 900));
+            window.Arrange(new Rect(0, 0, 1400, 900));
+
+            // Measured as the reported symptom: does something below the sliders move. Measuring a
+            // slider on its own with a made-up constraint says nothing, because the template's
+            // height does not follow the thumb -- the first version of this did that and passed
+            // against the very fault it was written for.
+            var below = window.GetControl<Button>("SmoothingSection");
+            double restingTop = below.Bounds.Y;
+
+            Assert.True(restingTop > 0, "the panel has not been laid out");
+
+            // The thumbs on the panel. The ones in the fly-outs are not built until a fly-out
+            // opens, so there is no thumb to reach -- but they are the same control under the same
+            // style, and it is the style that does this.
+            foreach (var name in new[] { "SizeSlider", "BrushOpacitySlider" })
+            {
+                var slider = window.GetControl<Slider>(name);
+
+                // The thumb inside the template, not the slider: the style that caused this selects
+                // Thumb:pointerover, which is the thumb's own state.
+                var thumb = slider.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
+                Assert.True(thumb is not null, $"{name} has no thumb to hover");
+
+                foreach (var state in new[] { ":pointerover", ":pressed" })
+                {
+                    ((IPseudoClasses)thumb!.Classes).Set(state, true);
+
+                    window.Measure(new Size(1400, 900));
+                    window.Arrange(new Rect(0, 0, 1400, 900));
+
+                    double now = below.Bounds.Y;
+
+                    ((IPseudoClasses)thumb.Classes).Set(state, false);
+
+                    window.Measure(new Size(1400, 900));
+                    window.Arrange(new Rect(0, 0, 1400, 900));
+
+                    Assert.True(Math.Abs(now - restingTop) < 0.01,
+                        $"{state} on {name} moved the panel below it from {restingTop} to {now}");
+                }
+            }
+        });
+    }
+
+    [Fact]
+    public void The_new_document_dialog_offers_sizes_and_starts_on_2K()
+    {
+        OnTheUiThread.Run(() =>
+        {
+            var dialog = new NewDocumentWindow();
+
+            var list = dialog.GetControl<ListBox>("SizeList");
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(list.ItemsSource).ToList();
+
+            Assert.Equal(NewDocumentWindow.Sizes.Select(s => s.Name), offered);
+
+            // 2K first and selected: the commonest screen, and a new document four times the area
+            // of the screen it will be looked at on is a surprise rather than a convenience.
+            Assert.Equal(0, list.SelectedIndex);
+            Assert.Equal((1920, 1080),
+                         (NewDocumentWindow.Sizes[0].Width, NewDocumentWindow.Sizes[0].Height));
+
+            // Nothing chosen until it is, so closing it changes no document.
+            Assert.Null(dialog.Chosen);
+        });
+    }
+
+    [Fact]
+    public void The_curve_presets_change_the_brush_they_are_pressed_for()
+    {
+        // Soft has to reach full width earlier than default, and hard later. Stated as an
+        // ordering rather than as three numbers, because the numbers are a judgement and the
+        // ordering is the thing that would be a bug if it were wrong -- a Soft button that made
+        // the brush harder is worse than one tuned to the wrong value.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+
+            double WidthAtHalfPressure(string button)
+            {
+                ClickButton(window.GetControl<Button>(button));
+                return window.CurrentBrush.Curve.Apply(0.5);
+            }
+
+            double soft = WidthAtHalfPressure("CurveSoftButton");
+            double normal = WidthAtHalfPressure("CurveDefaultButton");
+            double hard = WidthAtHalfPressure("CurveHardButton");
+
+            Assert.True(soft > normal, $"Soft gave {soft:F2} at half pressure against {normal:F2}");
+            Assert.True(hard < normal, $"Hard gave {hard:F2} at half pressure against {normal:F2}");
+
+            // Default is then the straight line, which it can only be because a preset sets the
+            // range too: half pressure, half the width.
+            Assert.Equal(0.5, normal, 6);
+
+            // A preset is a whole curve and somewhere you can get back to. Moving only the
+            // exponent, as the first version did, leaves the button a modifier: pressing Soft
+            // gives a different curve depending on what the brush was set to, and pressing it
+            // twice from different starting points gives two different brushes.
+            foreach (var button in new[] { "CurveSoftButton", "CurveDefaultButton", "CurveHardButton" })
+            {
+                ClickButton(window.GetControl<Button>(button));
+
+                Assert.Equal(0.0, window.CurrentBrush.Curve.Start, 6);
+                Assert.Equal(1.0, window.CurrentBrush.Curve.End, 6);
+            }
+
+            // The same button from two different starting points has to land in the same place,
+            // which is the property "preset" actually means.
+            ClickButton(window.GetControl<Button>("CurveHardButton"));
+            ClickButton(window.GetControl<Button>("CurveSoftButton"));
+            var fromHard = window.CurrentBrush.Curve;
+
+            ClickButton(window.GetControl<Button>("CurveDefaultButton"));
+            ClickButton(window.GetControl<Button>("CurveSoftButton"));
+
+            Assert.Equal(fromHard, window.CurrentBrush.Curve);
+        });
+    }
+
+    [Fact]
     public void The_picker_offers_every_brush_the_library_defines()
     {
         // A brush added to the library and not to the picker is invisible, and the library is where
@@ -126,7 +320,20 @@ public class WindowTests
             var combo = window.GetControl<ComboBox>("BrushCombo");
             var offered = Assert.IsAssignableFrom<IEnumerable<string>>(combo.ItemsSource).ToList();
 
-            Assert.Equal(BrushLibrary.Defaults.Select(b => b.Name), offered);
+            // Each entry says what kind of brush it is, because that is what decides which
+            // settings the brush even has.
+            Assert.Equal(BrushLibrary.Defaults.Count, offered.Count);
+
+            foreach (var (brush, shown) in BrushLibrary.Defaults.Zip(offered))
+            {
+                Assert.StartsWith(brush.Name, shown);
+                Assert.Contains(brush.Engine switch
+                {
+                    BrushEngineKind.Dabs => "Dabs",
+                    BrushEngineKind.MyPaint => "MyPaint",
+                    _ => "Taper",
+                }, shown);
+            }
         });
     }
 
@@ -149,20 +356,162 @@ public class WindowTests
     }
 
     [Fact]
-    public void The_compositing_choice_reaches_the_document()
+    public void A_brushs_engine_cannot_be_changed_out_from_under_it()
     {
-        // A document setting rather than a brush one, and the only control on the window that
-        // changes how a stroke reaches the layer rather than what the mark looks like.
+        // The engine decides which settings a brush has, so offering it as one of those settings
+        // read as though any brush could be switched to any engine. It could, and the result was
+        // misleading in both directions: a taper switched to MyPaint quietly became a default round
+        // dab with nothing of the original in it, and a MyPaint brush switched to taper drew from
+        // settings its file had never set.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+
+            Assert.Null(window.FindControl<ComboBox>("EngineCombo"));
+        });
+    }
+
+    [Fact]
+    public void A_new_brush_is_added_rather_than_replacing_the_one_in_use()
+    {
+        // Making a brush used to mean turning the selected one into something else -- loading a
+        // .myb overwrote whichever brush was in front of the pen, name and all. A new brush is a
+        // new entry, and the one that was there is still there.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var combo = window.GetControl<ComboBox>("BrushCombo");
+
+            combo.SelectedIndex = 0;
+            var wasFirst = window.CurrentBrush;
+            int before = BrushLibrary.Defaults.Count;
+
+            window.NewBrushForTest(BrushEngineKind.Dabs);
+
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(combo.ItemsSource).ToList();
+
+            Assert.Equal(before + 1, offered.Count);
+            Assert.Equal(BrushEngineKind.Dabs, window.CurrentBrush.Engine);
+
+            // And the brush that was selected is untouched, under its own name.
+            combo.SelectedIndex = 0;
+            Assert.Equal(wasFirst.Name, window.CurrentBrush.Name);
+            Assert.Equal(wasFirst.Engine, window.CurrentBrush.Engine);
+        });
+    }
+
+    [Fact]
+    public void The_button_beside_the_brush_picker_makes_brushes()
+    {
+        // The three ways to make a brush live in the Brush menu, which is where someone looks after
+        // failing to find them. The button next to the picker is where they look first, and it is a
+        // flyout wired in XAML: nothing else in the application would notice if the handler were
+        // dropped from one of these items, and the button would open, offer the choice, and do
+        // nothing at all.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var button = window.GetControl<Button>("AddBrushButton");
+
+            var flyout = Assert.IsType<MenuFlyout>(button.Flyout);
+            var items = flyout.Items.OfType<MenuItem>().ToList();
+
+            Assert.Equal(3, items.Count);
+            Assert.Contains(items, i => (i.Header as string)?.Contains("taper") == true);
+            Assert.Contains(items, i => (i.Header as string)?.Contains("dabs") == true);
+            Assert.Contains(items, i => (i.Header as string)?.Contains("MyPaint") == true);
+
+            int before = BrushLibrary.Defaults.Count;
+
+            // Choosing one adds a brush of that kind and puts it in front of the pen. Raised as a
+            // click on the item because the flyout itself needs a popup to open into, which a
+            // headless window does not have.
+            var taper = items.First(i => (i.Header as string)!.Contains("taper"));
+            taper.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            var offered = Assert.IsAssignableFrom<IEnumerable<string>>(
+                window.GetControl<ComboBox>("BrushCombo").ItemsSource).ToList();
+
+            Assert.Equal(before + 1, offered.Count);
+            Assert.Equal(BrushEngineKind.Taper, window.CurrentBrush.Engine);
+
+            var dabs = items.First(i => (i.Header as string)!.Contains("dabs"));
+            dabs.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.Equal(BrushEngineKind.Dabs, window.CurrentBrush.Engine);
+        });
+    }
+
+    [Fact]
+    public void A_MyPaint_brush_hides_the_settings_it_does_not_have()
+    {
+        // A MyPaint brush brings its own size, opacity and pressure response, all varying per dab.
+        // Those rows used to be disabled, which reads as something broken or as a setting that
+        // would work if only the right thing were selected. Absent reads as not applicable.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var combo = window.GetControl<ComboBox>("BrushCombo");
+
+            int native = BrushLibrary.Defaults
+                .Select((b, i) => (b, i)).First(x => x.b.Engine == BrushEngineKind.Taper).i;
+            int mypaint = BrushLibrary.Defaults
+                .Select((b, i) => (b, i)).First(x => x.b.Engine == BrushEngineKind.MyPaint).i;
+
+            combo.SelectedIndex = native;
+            Assert.True(window.GetControl<Border>("SizeRow").IsVisible);
+            Assert.False(window.GetControl<Border>("MyPaintRow").IsVisible);
+
+            combo.SelectedIndex = mypaint;
+            Assert.False(window.GetControl<Border>("SizeRow").IsVisible);
+            Assert.False(window.GetControl<Border>("OpacityRow").IsVisible);
+            Assert.False(window.GetControl<Border>("DrivesRow").IsVisible);
+            Assert.False(window.GetControl<Button>("CurveSection").IsVisible);
+
+            // And it says which file it is, in their place.
+            Assert.True(window.GetControl<Border>("MyPaintRow").IsVisible);
+        });
+    }
+
+    [Fact]
+    public void The_compositing_choice_reaches_the_brush()
+    {
+        // A brush setting now rather than a document one. It sat on the document because it
+        // decides how a stroke reaches the layer rather than what the mark looks like, which is
+        // the same question whichever brush drew it -- but in use a marker wants its overlaps
+        // flattened and a dry-media brush wants them to build up.
         OnTheUiThread.Run(() =>
         {
             var window = new MainWindow();
             var combo = window.GetControl<ComboBox>("CompositingCombo");
 
             combo.SelectedIndex = 1;
-            Assert.Equal(StrokeCompositing.Direct, window.Session.Compositing);
+            Assert.Equal(StrokeCompositing.Direct, window.CurrentBrush.Compositing);
 
             combo.SelectedIndex = 0;
-            Assert.Equal(StrokeCompositing.Wash, window.Session.Compositing);
+            Assert.Equal(StrokeCompositing.Wash, window.CurrentBrush.Compositing);
+        });
+    }
+
+    [Fact]
+    public void The_compositing_box_follows_the_brush_that_is_chosen()
+    {
+        // The other direction, and the half that breaks when a setting moves onto the brush: the
+        // control has to be re-read every time the brush changes, or it goes on showing whatever
+        // the last brush wanted and the next stroke quietly disagrees with the panel.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var brushes = window.GetControl<ComboBox>("BrushCombo");
+            var combo = window.GetControl<ComboBox>("CompositingCombo");
+
+            for (int i = 0; i < BrushLibrary.Defaults.Count; i++)
+            {
+                brushes.SelectedIndex = i;
+
+                var expected = BrushLibrary.Defaults[i].Compositing == StrokeCompositing.Direct ? 1 : 0;
+                Assert.Equal(expected, combo.SelectedIndex);
+            }
         });
     }
 

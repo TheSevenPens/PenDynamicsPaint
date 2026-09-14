@@ -37,7 +37,9 @@ public sealed class PaintSession : IDisposable
     /// painted on is a different thing from the ground the picture sits on, and making the paper
     /// one of the layers is how a stack ends up with a transparent hole nobody asked for.
     /// </remarks>
-    private static readonly SKColor Paper = new(0xFF, 0xFF, 0xFF);
+    private static readonly SKColor DefaultPaper = new(0xFF, 0xFF, 0xFF);
+
+    private SKColor _paper = DefaultPaper;
 
     /// <summary>Antialiasing puts ink just outside the geometry, so the stale region is grown.</summary>
     /// <remarks>
@@ -113,12 +115,33 @@ public sealed class PaintSession : IDisposable
     /// </remarks>
     private SKRectI _stale;
 
-    /// <summary>How the marks within a stroke combine with each other.</summary>
+    /// <summary>
+    /// The colour behind every layer: the paper the document is drawn on.
+    /// </summary>
     /// <remarks>
-    /// Takes effect at the start of the next stroke rather than mid-stroke, since a stroke already
-    /// half composited one way cannot finish the other.
+    /// <para>
+    /// Not a layer, though the layer panel shows it as the bottom one. A layer holds pixels that
+    /// can be drawn on, undone, merged and reordered, and none of that applies here -- this is one
+    /// colour filling the document, and making it a real layer would mean a full-size bitmap of a
+    /// single colour and four commands that have to refuse to work on it.
+    /// </para>
+    /// <para>
+    /// It is not saved into the layer stack either, for the same reason: a reader of the file would
+    /// see an opaque bottom layer rather than a paper colour. What <c>mergedimage.png</c> shows
+    /// includes it, because that is what the document looks like.
+    /// </para>
     /// </remarks>
-    public StrokeCompositing Compositing { get; set; } = StrokeCompositing.Wash;
+    public SKColor Paper
+    {
+        get => _paper;
+        set
+        {
+            if (_paper == value) return;
+
+            _paper = value;
+            InvalidateComposite();
+        }
+    }
 
     /// <summary>Document width in document units, which are its pixels at 100%.</summary>
     public int Width { get; }
@@ -496,7 +519,7 @@ public sealed class PaintSession : IDisposable
     /// <summary>Start a fresh stroke layer, if this stroke is being washed.</summary>
     private void BeginLayerIfWashing(IBrushEngine engine, BrushSettings brush)
     {
-        if (Compositing != StrokeCompositing.Wash) return;
+        if (brush.Compositing != StrokeCompositing.Wash) return;
 
         // A stroke that reads the canvas has to paint onto the canvas it is reading. Wash draws
         // into a layer of its own, where the only thing a smudge would find is the marks it has
@@ -597,7 +620,7 @@ public sealed class PaintSession : IDisposable
 
         _canvas.Save();
         _canvas.ClipRect(SKRect.Create(_stale.Left, _stale.Top, _stale.Width, _stale.Height));
-        _canvas.Clear(Paper);
+        _canvas.Clear(_paper);
 
         foreach (var layer in _layers)
         {
