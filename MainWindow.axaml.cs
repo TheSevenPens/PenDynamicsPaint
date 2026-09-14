@@ -1578,15 +1578,17 @@ public partial class MainWindow : Window
         _penSession = null;
         _paint.EndStroke();
 
-        // The forced outcomes are asked about first, and the refusal supplies its own driver.
-        // Ordered the other way round, with the refusal reading _api, a machine that has no
-        // tablet driver at all could not reach the refusal path: the "no driver" branch answered
-        // for it and produced a different message. That is every build machine, which is where
-        // this was found -- the test passed on a developer's machine and failed on CI, which is
-        // the wrong way round for a test to behave.
+        // The forced outcomes are asked about first, and the refusal names its own driver rather
+        // than reading _api.
+        //
+        // Reading _api made this depend on the machine twice over. A build machine has no tablet
+        // driver, so _api is whatever Avalonia offers, which is Avalonia Pointer -- and a refusal
+        // from Avalonia Pointer deliberately says nothing about Tools > Options, since that is
+        // where it would be sending somebody who is already there. The forced case is about what
+        // a driver refusal looks like, so it states the driver.
         if (PenOutcomeForTest == PenForTest.Refused)
         {
-            RefusePen(_api ?? InputApi.WintabDigitizer, "The pen session was refused.");
+            RefusePen(InputApi.WintabDigitizer, "The pen session was refused.");
         }
         else if (PenOutcomeForTest == PenForTest.NoDriver || _api is not { } api)
         {
