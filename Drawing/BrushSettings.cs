@@ -138,10 +138,9 @@ public sealed record BrushSettings
 
     /// <summary>What the pen says about how much ink the mark puts down.</summary>
     /// <remarks>
-    /// No editor yet: the panel has a checkbox for whether pressure reaches opacity at all, and
-    /// the curve is whichever one the brush was built with. It is the same type as
-    /// <see cref="SizeDynamics"/>, so giving opacity its own button is a matter of pointing the
-    /// flyout at this instead.
+    /// The same type as <see cref="SizeDynamics"/> and edited in the same panel, reached from a
+    /// button on the opacity row rather than the size row. Nothing by default: a brush whose width
+    /// follows the pen is the ordinary case, and one whose ink does as well is a choice.
     /// </remarks>
     public Dynamics OpacityDynamics { get; init; } = Dynamics.None;
 

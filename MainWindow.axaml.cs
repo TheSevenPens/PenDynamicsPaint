@@ -63,6 +63,8 @@ public partial class MainWindow : Window
     /// <summary>Which node of the pressure curve the pointer has hold of, if any.</summary>
     private CurveNode _curveDrag;
 
+    private DynamicsTarget _dynamicsTarget = DynamicsTarget.Size;
+
     /// <summary>When that reading arrived, so a stale one can be let go of.</summary>
     /// <remarks>
     /// A pen held still sends nothing, so the reading cannot simply be cleared on a tick that
@@ -132,7 +134,7 @@ public partial class MainWindow : Window
         // Canvas has some. The first pass is where that happens.
         CurvePlot.PropertyChanged += (_, e) =>
         {
-            if (e.Property.Name == "Bounds") DrawCurve(Brush.SizeDynamics.Pressure);
+            if (e.Property.Name == "Bounds") DrawCurve(CurrentDynamics.Pressure);
         };
 
         WireBrushPanel();
@@ -1103,26 +1105,26 @@ public partial class MainWindow : Window
                 : StrokeInterpolation.Straight,
         });
 
-        // All that is left of the Size / Opacity / Both combo, until opacity gets a dynamics
-        // button of its own. Ticking it turns pressure on for opacity and leaves whatever curve
-        // the brush was built with; clearing it takes pressure off and keeps the curve, so the two
-        // are not one-way.
-        OpacityPressureCheck.IsCheckedChanged += (_, _) => EditBrush(b => b with
+        // One editor, two buttons. Which property it is editing is whichever button it was
+        // opened from, read once as it opens rather than kept in step by each button: a target
+        // written when the button is clicked and read when the panel is filled is two chances for
+        // the panel to be showing one property and writing to the other.
+        var dynamicsFlyout = (Flyout)Resources["DynamicsFlyout"]!;
+
+        dynamicsFlyout.Opening += (_, _) =>
         {
-            OpacityDynamics = b.OpacityDynamics with
-            {
-                Pressure = b.OpacityDynamics.Pressure with
-                {
-                    Enabled = OpacityPressureCheck.IsChecked == true,
-                },
-            },
-        });
+            _dynamicsTarget = ReferenceEquals(dynamicsFlyout.Target, OpacityDynamicsButton)
+                ? DynamicsTarget.Opacity
+                : DynamicsTarget.Size;
 
-        SizePressureCheck.IsCheckedChanged += (_, _) =>
-            EditSizePressure(i => i with { Enabled = SizePressureCheck.IsChecked == true });
+            ShowBrush();
+        };
 
-        OnSlider(SizeMinimumSlider,
-                 () => EditSizePressure(i => i with { Minimum = SizeMinimumSlider.Value / 100.0 }));
+        DynamicsPressureCheck.IsCheckedChanged += (_, _) =>
+            EditDynamicsPressure(i => i with { Enabled = DynamicsPressureCheck.IsChecked == true });
+
+        OnSlider(DynamicsMinimumSlider,
+                 () => EditDynamicsPressure(i => i with { Minimum = DynamicsMinimumSlider.Value / 100.0 }));
 
         OnSlider(SizeSlider, () => EditBrush(b => b with { Size = SizeSlider.Value }));
         OnSlider(SpacingSlider, () => EditBrush(b => b with { Spacing = SpacingSlider.Value }));
@@ -1141,9 +1143,9 @@ public partial class MainWindow : Window
             e.Pointer.Capture(null);
         };
 
-        OnNumberBox(CurveStartBox, v => EditSizeCurve(c => c with { Start = v }));
-        OnNumberBox(CurveEndBox, v => EditSizeCurve(c => c with { End = v }));
-        OnNumberBox(CurveExponentBox, v => EditSizeCurve(c => c with { Exponent = v }));
+        OnNumberBox(CurveStartBox, v => EditDynamicsCurve(c => c with { Start = v }));
+        OnNumberBox(CurveEndBox, v => EditDynamicsCurve(c => c with { End = v }));
+        OnNumberBox(CurveExponentBox, v => EditDynamicsCurve(c => c with { Exponent = v }));
 
         OnSlider(PositionSmoothingSlider, () => EditBrush(b => b with
         {
@@ -1172,20 +1174,36 @@ public partial class MainWindow : Window
             if (e.Property.Name == "Value") changed();
         };
 
-    /// <summary>Change what pressure does to the size of the mark.</summary>
-    /// <remarks>
-    /// Three levels down -- brush, dynamics, input -- and every control in the size flyout has to
-    /// walk them, so they are walked once here. Written out at each call site instead, the nesting
-    /// was the whole line and the edit was a detail inside it.
-    /// </remarks>
-    private void EditSizePressure(Func<DynamicInput, DynamicInput> edit) =>
-        EditBrush(b => b with
-        {
-            SizeDynamics = b.SizeDynamics with { Pressure = edit(b.SizeDynamics.Pressure) },
-        });
+    /// <summary>Which property the dynamics editor is currently editing.</summary>
+    private enum DynamicsTarget { Size, Opacity }
 
-    private void EditSizeCurve(Func<PressureCurve, PressureCurve> edit) =>
-        EditSizePressure(i => i with { Curve = edit(i.Curve) });
+    /// <summary>What the pen does to the property the editor is open on.</summary>
+    private Dynamics CurrentDynamics => _dynamicsTarget == DynamicsTarget.Opacity
+        ? Brush.OpacityDynamics
+        : Brush.SizeDynamics;
+
+    /// <summary>Change what pressure does to the property the editor is open on.</summary>
+    /// <remarks>
+    /// Three levels down -- brush, dynamics, input -- and every control in the flyout has to walk
+    /// them, so they are walked once here. Written out at each call site instead, the nesting was
+    /// the whole line and the edit was a detail inside it.
+    /// </remarks>
+    private void EditDynamicsPressure(Func<DynamicInput, DynamicInput> edit) =>
+        EditBrush(b => _dynamicsTarget == DynamicsTarget.Opacity
+            ? b with
+            {
+                OpacityDynamics = b.OpacityDynamics with
+                {
+                    Pressure = edit(b.OpacityDynamics.Pressure),
+                },
+            }
+            : b with
+            {
+                SizeDynamics = b.SizeDynamics with { Pressure = edit(b.SizeDynamics.Pressure) },
+            });
+
+    private void EditDynamicsCurve(Func<PressureCurve, PressureCurve> edit) =>
+        EditDynamicsPressure(i => i with { Curve = edit(i.Curve) });
 
     /// <summary>Apply one edit to the selected brush, then show what it became.</summary>
     /// <remarks>
@@ -1223,7 +1241,7 @@ public partial class MainWindow : Window
         // settings that would work if only the right thing were selected; absent ones read as not
         // applicable, which is what they are. It also makes the panel shorter for exactly the
         // brushes that need the room.
-        SizeRow.IsVisible = OpacityRow.IsVisible = OpacityPressureRow.IsVisible = !mypaint;
+        SizeRow.IsVisible = OpacityRow.IsVisible = !mypaint;
         MyPaintRow.IsVisible = mypaint;
         MyPaintLabel.Text = b.MyPaint is { } file
             ? file.Ignored.Count == 0 ? file.Name : $"{file.Name} ({file.Ignored.Count} unused)"
@@ -1236,25 +1254,31 @@ public partial class MainWindow : Window
         BrushOpacitySlider.Value = b.Opacity * 100;
         BrushOpacityLabel.Text = $"{b.Opacity * 100:F0}%";
 
-        var size = b.SizeDynamics.Pressure;
+        // The editor shows whichever property it was opened on, and the heading is the only
+        // thing on screen that says which: the controls under it are identical either way.
+        bool opacity = _dynamicsTarget == DynamicsTarget.Opacity;
+        var input = CurrentDynamics.Pressure;
 
-        SizePressureCheck.IsChecked = size.Enabled;
-        SizePressurePanel.IsVisible = size.Enabled;
-        SizeMinimumSlider.Value = size.Minimum * 100;
-        SizeMinimumLabel.Text = $"{size.Minimum * 100:F0}%";
+        DynamicsHeading.Text = opacity ? "What drives the opacity" : "What drives the size";
 
-        CurveStartBox.Text = $"{size.Curve.Start:F2}";
-        CurveEndBox.Text = $"{size.Curve.End:F2}";
-        CurveExponentBox.Text = $"{size.Curve.Exponent:F2}";
+        DynamicsPressureCheck.IsChecked = input.Enabled;
+        DynamicsPressurePanel.IsVisible = input.Enabled;
+        DynamicsMinimumSlider.Value = input.Minimum * 100;
+        DynamicsMinimumLabel.Text = $"{input.Minimum * 100:F0}%";
 
-        OpacityPressureCheck.IsChecked = b.OpacityDynamics.Pressure.Enabled;
+        CurveStartBox.Text = $"{input.Curve.Start:F2}";
+        CurveEndBox.Text = $"{input.Curve.End:F2}";
+        CurveExponentBox.Text = $"{input.Curve.Exponent:F2}";
 
-        // The button says what is behind it without being opened: a circle with a line through it
-        // for a size the pen does not touch, ticked rows for one it does. Clip Studio's, and the
-        // reason it is worth copying is that a dynamics panel is otherwise invisible -- a brush
-        // that behaves oddly gives no hint that there is a panel to go and look at.
+        // Each button says what is behind it without being opened: a circle with a line through
+        // it for a property the pen does not touch, ticked rows for one it does. Clip Studio's,
+        // and the reason it is worth copying is that a dynamics panel is otherwise invisible -- a
+        // brush that behaves oddly gives no hint that there is a panel to go and look at.
         SizeDynamicsOn.IsVisible = b.SizeDynamics.Count > 0;
         SizeDynamicsOff.IsVisible = !SizeDynamicsOn.IsVisible;
+
+        OpacityDynamicsOn.IsVisible = b.OpacityDynamics.Count > 0;
+        OpacityDynamicsOff.IsVisible = !OpacityDynamicsOn.IsVisible;
 
         PositionSmoothingSlider.Value = b.Smoothing.Position;
         PositionSmoothingLabel.Text = Reach(b.Smoothing.Position);
@@ -1277,7 +1301,7 @@ public partial class MainWindow : Window
 
         _syncingBrush = false;
 
-        DrawCurve(size);
+        DrawCurve(input);
     }
 
     /// <summary>A reach in document units, or the word for not filtering at all.</summary>
@@ -1314,7 +1338,7 @@ public partial class MainWindow : Window
     /// </para>
     /// </remarks>
     private void ApplyCurvePreset(double exponent) =>
-        EditSizeCurve(_ => new PressureCurve(0.0, 1.0, exponent));
+        EditDynamicsCurve(_ => new PressureCurve(0.0, 1.0, exponent));
 
     private void CurveSoft_Click(object? sender, RoutedEventArgs e) => ApplyCurvePreset(0.55);
 
@@ -1344,7 +1368,7 @@ public partial class MainWindow : Window
         }
 
         double x = Math.Clamp(rawPressure, 0, 1);
-        double y = Math.Clamp(Brush.SizeDynamics.Pressure.Apply(x), 0, 1);
+        double y = Math.Clamp(CurrentDynamics.Pressure.Apply(x), 0, 1);
         var p = CurvePoint(x, y);
 
         Canvas.SetLeft(CurveDot, p.X - CurveDot.Width / 2);
@@ -1451,7 +1475,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private CurveNode NodeNear(Point at)
     {
-        var input = Brush.SizeDynamics.Pressure;
+        var input = CurrentDynamics.Pressure;
         var curve = input.Curve;
         var best = CurveNode.None;
         double nearest = 22;    // generous: the node is 13px across and a pen is not a mouse
@@ -1494,7 +1518,7 @@ public partial class MainWindow : Window
 
         var (x, y) = CurveValue(e.GetPosition(CurvePlot));
 
-        EditSizePressure(i => Dragged(i, _curveDrag, x, y));
+        EditDynamicsPressure(i => Dragged(i, _curveDrag, x, y));
         e.Handled = true;
     }
 
