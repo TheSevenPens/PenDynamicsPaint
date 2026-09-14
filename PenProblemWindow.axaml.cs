@@ -67,8 +67,16 @@ public partial class PenProblemWindow : Window
     /// </para>
     /// <para>
     /// A context is leaked by any process that dies without closing it -- killed, crashed, or
-    /// stopped from a debugger -- and the driver does not reclaim them. That is a plausible
-    /// afternoon of development, and it was: seen at 253 open against a maximum of 32.
+    /// stopped from a debugger -- and the driver does not reclaim them. Measured on a Wacom
+    /// driver: a clean exit always gives the context back, a kill never does, and it makes no
+    /// difference how many times that process had opened and closed one before. Clip Studio and
+    /// Krita leak in exactly the same way, so this is the driver's behaviour rather than any
+    /// application's.
+    /// </para>
+    /// <para>
+    /// The two numbers are the driver's own and are worth showing for that reason, but they are
+    /// in its units rather than in contexts: one context costs two of them, so a stated maximum
+    /// of 32 is sixteen contexts, and sixteen killed programs will exhaust it. Seen at 253.
     /// </para>
     /// <para>
     /// Only when the table is not full is it worth blaming another application, and then the two
@@ -79,10 +87,11 @@ public partial class PenProblemWindow : Window
     {
         if (contexts is { IsFull: true } full)
         {
-            return $"The tablet driver has run out of contexts: {full} are open. One is left "
-                 + "behind by every program that is killed or crashes rather than closing "
-                 + "normally, and the driver does not take them back. Restarting the Wacom "
-                 + "Tablet Service, or the machine, clears them.";
+            return $"The tablet driver has run out of contexts ({full} in its own units, and "
+                 + "one context costs two of them). Every program that is killed or crashes "
+                 + "rather than closing normally leaves one behind, and the driver does not take "
+                 + "them back. Restarting the Wacom Tablet Service, or the machine, clears "
+                 + "them.";
         }
 
         return api == InputApi.AvaloniaPointer

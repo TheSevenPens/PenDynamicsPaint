@@ -968,6 +968,11 @@ public class WindowTests
 
             Assert.Contains("253", said);
             Assert.Contains("Wacom Tablet Service", said);
+
+            // In the driver's units, and said to be so. One context costs two of them, so a
+            // maximum of 32 is sixteen contexts; a sentence that let 32 be read as 32 programs
+            // would be telling the user the table is half as easy to fill as it is.
+            Assert.Contains("costs two", said);
             Assert.DoesNotContain("Clip Studio", said);
 
             // With contexts to spare it is worth blaming another application again, and the two
