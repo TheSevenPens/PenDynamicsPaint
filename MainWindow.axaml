@@ -13,8 +13,16 @@
         <!-- No fixed height: the row is as tall as the slider inside it wants to be. Forcing it
              shorter clips the thumb, because the Fluent template lays the track out against the
              box rather than centring the thumb in it. -->
+        <!-- A fixed height, not a minimum. As a minimum the row was as tall as whatever was in
+             it, so any control that asked for more room in one of its states (hovered, pressed,
+             focused) pushed itself and the whole column below it down the panel, and the control
+             moved out from under the pointer reaching for it.
+
+             A row here holds a label, one control and a value, and 24 is enough for all three.
+             Nothing clips: the reason an explicit height used to clip the slider thumb into a dome
+             was a 20px Fluent thumb in a 24px box, and the thumb is 11 now. -->
         <Style Selector="Border.row">
-            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Height" Value="24" />
         </Style>
 
         <Style Selector="Border.row > Grid > TextBlock.name">
@@ -53,9 +61,21 @@
             <Setter Property="CornerRadius" Value="6" />
         </Style>
 
+        <!-- Scaled, not resized. Growing the thumb on hover changes how much room it asks for,
+             and the rows here are as tall as their content: the row grew by two pixels and took
+             everything below it down the panel with it, so the slider moved under the pointer that
+             was reaching for it. A transform is drawn at a different size and laid out at the same
+             one. -->
+        <Style Selector="Slider:horizontal /template/ Thumb">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+        </Style>
+
         <Style Selector="Slider:horizontal /template/ Thumb:pointerover">
-            <Setter Property="Width" Value="13" />
-            <Setter Property="Height" Value="13" />
+            <Setter Property="RenderTransform" Value="scale(1.25)" />
+        </Style>
+
+        <Style Selector="Slider:horizontal /template/ Thumb:pressed">
+            <Setter Property="RenderTransform" Value="scale(1.1)" />
         </Style>
 
         <!-- Sections that are read less often than they are set. They used to expand in place,

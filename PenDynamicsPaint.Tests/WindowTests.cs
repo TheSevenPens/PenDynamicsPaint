@@ -1,6 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using PenDynamicsPaint.Drawing;
 using PenDynamicsPaint.Paint;
 using WinPenKit;
@@ -156,6 +159,65 @@ public class WindowTests
         {
             Assert.NotNull(new MainWindow());
             Assert.NotNull(new OptionsWindow());
+        });
+    }
+
+    [Fact]
+    public void Hovering_or_pressing_a_slider_does_not_move_the_panel()
+    {
+        // Reported: clicking a size or opacity slider nudged it, and everything under it, down the
+        // panel. The thumb grew on hover, and the rows here are as tall as their content, so the
+        // row asked for two more pixels and took the rest of the column with it -- the control
+        // moved under the pointer that was reaching for it.
+        //
+        // Measured rather than looked at, because two pixels is exactly the size of fault that
+        // survives a screenshot. Any state a control can be in has to leave it asking for the same
+        // room as every other state.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            window.Measure(new Size(1400, 900));
+            window.Arrange(new Rect(0, 0, 1400, 900));
+
+            // Measured as the reported symptom: does something below the sliders move. Measuring a
+            // slider on its own with a made-up constraint says nothing, because the template's
+            // height does not follow the thumb -- the first version of this did that and passed
+            // against the very fault it was written for.
+            var below = window.GetControl<Button>("SmoothingSection");
+            double restingTop = below.Bounds.Y;
+
+            Assert.True(restingTop > 0, "the panel has not been laid out");
+
+            // The thumbs on the panel. The ones in the fly-outs are not built until a fly-out
+            // opens, so there is no thumb to reach -- but they are the same control under the same
+            // style, and it is the style that does this.
+            foreach (var name in new[] { "SizeSlider", "BrushOpacitySlider" })
+            {
+                var slider = window.GetControl<Slider>(name);
+
+                // The thumb inside the template, not the slider: the style that caused this selects
+                // Thumb:pointerover, which is the thumb's own state.
+                var thumb = slider.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
+                Assert.True(thumb is not null, $"{name} has no thumb to hover");
+
+                foreach (var state in new[] { ":pointerover", ":pressed" })
+                {
+                    ((IPseudoClasses)thumb!.Classes).Set(state, true);
+
+                    window.Measure(new Size(1400, 900));
+                    window.Arrange(new Rect(0, 0, 1400, 900));
+
+                    double now = below.Bounds.Y;
+
+                    ((IPseudoClasses)thumb.Classes).Set(state, false);
+
+                    window.Measure(new Size(1400, 900));
+                    window.Arrange(new Rect(0, 0, 1400, 900));
+
+                    Assert.True(Math.Abs(now - restingTop) < 0.01,
+                        $"{state} on {name} moved the panel below it from {restingTop} to {now}");
+                }
+            }
         });
     }
 
