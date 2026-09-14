@@ -1578,13 +1578,19 @@ public partial class MainWindow : Window
         _penSession = null;
         _paint.EndStroke();
 
-        if (PenOutcomeForTest == PenForTest.NoDriver || _api is not { } api)
+        // The forced outcomes are asked about first, and the refusal supplies its own driver.
+        // Ordered the other way round, with the refusal reading _api, a machine that has no
+        // tablet driver at all could not reach the refusal path: the "no driver" branch answered
+        // for it and produced a different message. That is every build machine, which is where
+        // this was found -- the test passed on a developer's machine and failed on CI, which is
+        // the wrong way round for a test to behave.
+        if (PenOutcomeForTest == PenForTest.Refused)
+        {
+            RefusePen(_api ?? InputApi.WintabDigitizer, "The pen session was refused.");
+        }
+        else if (PenOutcomeForTest == PenForTest.NoDriver || _api is not { } api)
         {
             RefusePen(InputApi.AvaloniaPointer, "No pen driver was found.");
-        }
-        else if (PenOutcomeForTest == PenForTest.Refused)
-        {
-            RefusePen(api, "The pen session was refused.");
         }
         else
         {

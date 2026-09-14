@@ -786,6 +786,10 @@ public class WindowTests
 
             // And it says what can be done about it. The driver's own words are not actionable:
             // what Wintab says is that a fallback context failed to open, which names no cause.
+            //
+            // This held on a machine with a tablet driver and not on one without, because the
+            // refusal used to read the chosen driver and there was none to read. The forced
+            // outcome supplies its own now, so the path under test is the same path everywhere.
             string? said = window.GetControl<TextBlock>("StatusLabel").Text;
             Assert.Contains("Options", said);
         });
