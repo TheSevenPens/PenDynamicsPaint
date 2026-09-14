@@ -57,49 +57,48 @@ public partial class PenProblemWindow : Window
         if (!FallbackButton.IsVisible) RetryButton.IsDefault = true;
     }
 
-    /// <summary>The reason, in terms of something the user can act on.</summary>
+    /// <summary>What is worth saying about why, which is less than it looks.</summary>
     /// <remarks>
     /// <para>
-    /// The driver is asked first, because it knows one of the causes and guessing at it was
-    /// wrong once already. A Wintab driver will say how many contexts it has open and how many it
-    /// will allow; when the first number has reached the second it has none left to give, and no
-    /// application can open one whatever it asks for.
+    /// This has guessed wrong twice, so it now guesses less. First it said another application was
+    /// holding the tablet, when the driver was refusing every kind of context to everyone. Then it
+    /// said the driver had run out of contexts, because it had 253 open against a stated maximum
+    /// of 32 -- and that was measured afterwards to be no limit at all: contexts opened past it
+    /// happily, all the way to 334.
     /// </para>
     /// <para>
-    /// A context is leaked by any process that dies without closing it -- killed, crashed, or
-    /// stopped from a debugger -- and the driver does not reclaim them. Measured on a Wacom
-    /// driver: a clean exit always gives the context back, a kill never does, and it makes no
-    /// difference how many times that process had opened and closed one before. Clip Studio and
-    /// Krita leak in exactly the same way, so this is the driver's behaviour rather than any
-    /// application's.
-    /// </para>
-    /// <para>
-    /// The two numbers are the driver's own and are worth showing for that reason, but they are
-    /// in its units rather than in contexts: one context costs two of them, so a stated maximum
-    /// of 32 is sixteen contexts, and sixteen killed programs will exhaust it. Seen at 253.
-    /// </para>
-    /// <para>
-    /// Only when the table is not full is it worth blaming another application, and then the two
-    /// that do it are named, because "another application" sends someone hunting.
+    /// What is actually known is that the driver can stop handing out contexts, with its own count
+    /// frozen, and that restarting the tablet service puts it right within seconds. So that is
+    /// what this says, along with the other cause it could be. The counts are shown when they look
+    /// implausible, not as an explanation but because they say contexts have been leaked, which is
+    /// a true thing about the machine and a thing the reader can act on.
     /// </para>
     /// </remarks>
     private static string Cause(InputApi api, WintabContextTable? contexts)
     {
-        if (contexts is { IsFull: true } full)
+        if (api == InputApi.AvaloniaPointer)
         {
-            return $"The tablet driver has run out of contexts ({full} in its own units, and "
-                 + "one context costs two of them). Every program that is killed or crashes "
-                 + "rather than closing normally leaves one behind, and the driver does not take "
-                 + "them back. Restarting the Wacom Tablet Service, or the machine, clears "
-                 + "them.";
+            return "Windows is not passing pen input to this window. A tablet that is unplugged "
+                 + "or a driver that is not running will both do this.";
         }
 
-        return api == InputApi.AvaloniaPointer
-            ? "Windows is not passing pen input to this window. A tablet that is unplugged or a "
-              + "driver that is not running will both do this."
-            : "Another application is probably holding the tablet. Wintab hands its context to "
-              + "one application at a time, and Clip Studio Paint and Photoshop both take one and "
-              + "keep it for as long as they are open.";
+        string cause =
+            "Either the tablet driver has stopped handing out contexts, which happens and is put "
+            + "right by restarting the Wacom Tablet Service or the machine, or another "
+            + "application is holding the tablet -- Clip Studio Paint and Photoshop both take a "
+            + "context and keep it while they are open.";
+
+        // Only when it is obviously implausible. A handful of open contexts is an ordinary
+        // machine and saying so would be noise.
+        if (contexts is { AboveStatedMaximum: true } odd)
+        {
+            cause += $" The driver reports {odd}, which means programs have been killed or have "
+                   + "crashed rather than closing: each one leaves a context behind and the "
+                   + "driver never takes it back. That is not why the pen has stopped, but it "
+                   + "does clear when the service is restarted.";
+        }
+
+        return cause;
     }
 
     private void Choose(PenProblemChoice choice)

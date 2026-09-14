@@ -954,39 +954,39 @@ public class WindowTests
     }
 
     [Fact]
-    public void The_dialog_gives_the_cause_the_driver_admitted_to()
+    public void The_dialog_offers_the_causes_without_picking_one()
     {
-        // The first version of this dialog guessed, and guessed wrong: it said another
-        // application was holding the tablet, when the driver had simply run out of contexts and
-        // was refusing every kind of context to everyone. The driver will say which it is, so it
-        // is asked rather than assumed.
+        // This has guessed wrong twice. First it said another application was holding the tablet,
+        // when the driver was refusing every kind of context to everyone. Then it said the driver
+        // had run out, because 253 were open against a stated maximum of 32 -- which turned out
+        // to be no limit at all, since opening past it worked all the way to 334. What is known
+        // is that a service restart cures it, so that is what it says.
         OnTheUiThread.Run(() =>
         {
-            var full = new PenProblemWindow(InputApi.WintabDigitizer, "no contexts", true,
-                                            new WintabContextTable(253, 32));
-            string? said = full.GetControl<TextBlock>("CauseText").Text;
+            var odd = new PenProblemWindow(InputApi.WintabDigitizer, "no", true,
+                                           new WintabContextTable(253, 32));
+            string? said = odd.GetControl<TextBlock>("CauseText").Text;
 
+            // Both causes offered, neither claimed.
+            Assert.Contains("Wacom Tablet Service", said);
+            Assert.Contains("Clip Studio", said);
+
+            // The count is reported, and explicitly not blamed.
             Assert.Contains("253", said);
+            Assert.Contains("not why", said);
+
+            // An ordinary count is not worth a sentence.
+            var ordinary = new PenProblemWindow(InputApi.WintabDigitizer, "no", true,
+                                                new WintabContextTable(4, 32));
+            said = ordinary.GetControl<TextBlock>("CauseText").Text;
+
+            Assert.DoesNotContain("killed", said);
             Assert.Contains("Wacom Tablet Service", said);
 
-            // In the driver's units, and said to be so. One context costs two of them, so a
-            // maximum of 32 is sixteen contexts; a sentence that let 32 be read as 32 programs
-            // would be telling the user the table is half as easy to fill as it is.
-            Assert.Contains("costs two", said);
-            Assert.DoesNotContain("Clip Studio", said);
-
-            // With contexts to spare it is worth blaming another application again, and the two
-            // that do it are named because "another application" sends someone hunting.
-            var plenty = new PenProblemWindow(InputApi.WintabDigitizer, "held", true,
-                                              new WintabContextTable(2, 32));
-            said = plenty.GetControl<TextBlock>("CauseText").Text;
-
-            Assert.Contains("Clip Studio", said);
-            Assert.DoesNotContain("run out", said);
-
-            // And a driver that would not say keeps the guess rather than inventing a number.
-            var silent = new PenProblemWindow(InputApi.WintabDigitizer, "held", true, null);
-            Assert.Contains("Clip Studio", silent.GetControl<TextBlock>("CauseText").Text);
+            // And a driver that would not say keeps the rest of the sentence.
+            var silent = new PenProblemWindow(InputApi.WintabDigitizer, "no", true, null);
+            Assert.Contains("Wacom Tablet Service",
+                            silent.GetControl<TextBlock>("CauseText").Text);
         });
     }
 
