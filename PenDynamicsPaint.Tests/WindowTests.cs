@@ -75,7 +75,7 @@ public class WindowTests
         // its own default for the life of the application and every brush drew the same colour.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             Assert.Equal(MainWindow.InkChoices[0].Colour, window.Session.StrokeColor);
 
@@ -96,7 +96,7 @@ public class WindowTests
         // wired up in a loop with the index captured wrongly, and then every swatch picks the last.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             for (int i = 0; i < window.Swatches.Count; i++)
             {
@@ -115,7 +115,7 @@ public class WindowTests
         // worse than no palette.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             for (int i = 0; i < window.Swatches.Count; i++)
             {
@@ -170,7 +170,7 @@ public class WindowTests
         // which reaches the user as the application vanishing rather than as a message.
         OnTheUiThread.Run(() =>
         {
-            Assert.NotNull(new MainWindow());
+            Assert.NotNull(TestWindows.Track(new MainWindow()));
             Assert.NotNull(new OptionsWindow());
         });
     }
@@ -188,7 +188,7 @@ public class WindowTests
         // room as every other state.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.Measure(new Size(1400, 900));
             window.Arrange(new Rect(0, 0, 1400, 900));
 
@@ -408,7 +408,7 @@ public class WindowTests
         // shut is to say that there is.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var combo = window.GetControl<ComboBox>("BrushCombo");
             var off = window.GetControl<Control>("SizeDynamicsOff");
             var on = window.GetControl<Control>("SizeDynamicsOn");
@@ -436,7 +436,7 @@ public class WindowTests
     {
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
             var tick = window.GetControl<CheckBox>("DynamicsPressureCheck");
@@ -467,7 +467,7 @@ public class WindowTests
     {
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
             window.GetControl<Slider>("DynamicsMinimumSlider").Value = 50;
@@ -490,7 +490,7 @@ public class WindowTests
         // the axis, and a plot still drawing from zero would leave it in the corner.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
             window.GetControl<Slider>("DynamicsMinimumSlider").Value = 50;
 
@@ -522,7 +522,7 @@ public class WindowTests
         // the full height would put the node somewhere other than where it was dragged.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
             window.GetControl<Slider>("DynamicsMinimumSlider").Value = 50;
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
@@ -545,7 +545,7 @@ public class WindowTests
         // which is a plot that agrees with itself and says nothing.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
             ClickButton(window.GetControl<Button>("CurveHardButton"));
 
@@ -581,7 +581,7 @@ public class WindowTests
         // target would still tick, still draw, and still change a brush.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
             var tick = window.GetControl<CheckBox>("DynamicsPressureCheck");
@@ -605,6 +605,56 @@ public class WindowTests
     }
 
     [Fact]
+    public void A_window_a_test_made_is_closed_when_the_test_ends()
+    {
+        // Not tidiness. A shown window holds a Wintab context, and a context that is never closed
+        // is never given back: before this suite closed its windows, every run cost the machine 26
+        // of the driver's context units and a morning of runs took it past a thousand, at which
+        // point the driver stops handing out contexts and no application on the machine can see
+        // the pen.
+        //
+        // What is checked here is the half that can be checked without a tablet: that a tracked
+        // window is actually closed. That it is tracked at all is every other test in this file,
+        // and that the driver then takes the context back is a measurement rather than an
+        // assertion -- see Docs/WINTAB-CONTEXT-LEAK.md in WinPenKit for how to take it.
+        OnTheUiThread.Run(() =>
+        {
+            var window = TestWindows.Track(new MainWindow());
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(window.IsVisible, "the window under test did not open");
+
+            TestWindows.CloseAll();
+
+            Assert.False(window.IsVisible, "a tracked window was left open");
+        });
+    }
+
+    [Fact]
+    public void The_harness_closes_the_windows_when_the_test_body_ends()
+    {
+        // The other half: that something actually calls CloseAll. A test cannot watch what happens
+        // after its own body, so the window is made in one dispatch and looked at in the next, with
+        // the assertion outside the block that made it. Left to a test that checked from inside,
+        // the one line in OnTheUiThread.Run that does this could be deleted and nothing would say
+        // so until the driver ran out of contexts days later.
+        Window? made = null;
+
+        OnTheUiThread.Run(() =>
+        {
+            made = TestWindows.Track(new MainWindow());
+            made.Show();
+            Dispatcher.UIThread.RunJobs();
+        });
+
+        bool stillOpen = true;
+        OnTheUiThread.Run(() => stillOpen = made!.IsVisible);
+
+        Assert.False(stillOpen, "the harness left a window open after the test body finished");
+    }
+
+    [Fact]
     public void The_button_on_the_opacity_row_says_whether_anything_drives_the_opacity()
     {
         // The same job as the one on the size row, and worth its own test because the two buttons
@@ -613,7 +663,7 @@ public class WindowTests
         // which is most of them.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var off = window.GetControl<Control>("OpacityDynamicsOff");
             var on = window.GetControl<Control>("OpacityDynamicsOn");
             var tick = window.GetControl<CheckBox>("DynamicsPressureCheck");
@@ -642,7 +692,7 @@ public class WindowTests
         // it the panel is the same picture whichever button was pressed.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var heading = window.GetControl<TextBlock>("DynamicsHeading");
 
             OpenDynamics(window, "SizeDynamicsButton");
@@ -661,7 +711,7 @@ public class WindowTests
         // unable to hold a soft width and a hard ink at once.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
             OpenDynamics(window, "OpacityDynamicsButton");
@@ -693,7 +743,7 @@ public class WindowTests
         // the test would pass with the lookup wired to either property.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             window.GetControl<ComboBox>("BrushCombo").SelectedIndex = PressureDrivenBrush;
 
             // The size response begins nine tenths of the way along the pen, so its Start node is
@@ -727,7 +777,7 @@ public class WindowTests
         // that was asked for.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
@@ -754,7 +804,7 @@ public class WindowTests
     {
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
@@ -779,7 +829,7 @@ public class WindowTests
         // directly.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
@@ -814,7 +864,7 @@ public class WindowTests
         // through another, which leaves a plot whose line runs backwards.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
@@ -839,7 +889,7 @@ public class WindowTests
         // nodes was wanted.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             ClickButton(window.GetControl<Button>("CurveDefaultButton"));
 
             var plot = OpenCurvePlot(window);
@@ -875,7 +925,7 @@ public class WindowTests
         // showing what the brush made of what was typed rather than what was typed.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var exponent = window.GetControl<TextBox>("CurveExponentBox");
             var start = window.GetControl<TextBox>("CurveStartBox");
 
@@ -908,7 +958,7 @@ public class WindowTests
         // the brush harder is worse than one tuned to the wrong value.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             double WidthAtHalfPressure(string button)
             {
@@ -959,7 +1009,7 @@ public class WindowTests
         // someone adding one would stop.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             var combo = window.GetControl<ComboBox>("BrushCombo");
             var offered = Assert.IsAssignableFrom<IEnumerable<string>>(combo.ItemsSource).ToList();
@@ -986,7 +1036,7 @@ public class WindowTests
     {
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var combo = window.GetControl<ComboBox>("BrushCombo");
 
             for (int i = 0; i < BrushLibrary.Defaults.Count; i++)
@@ -1009,7 +1059,7 @@ public class WindowTests
         // settings its file had never set.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             Assert.Null(window.FindControl<ComboBox>("EngineCombo"));
         });
@@ -1023,7 +1073,7 @@ public class WindowTests
         // new entry, and the one that was there is still there.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var combo = window.GetControl<ComboBox>("BrushCombo");
 
             combo.SelectedIndex = 0;
@@ -1054,7 +1104,7 @@ public class WindowTests
         // nothing at all.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var button = window.GetControl<Button>("AddBrushButton");
 
             var flyout = Assert.IsType<MenuFlyout>(button.Flyout);
@@ -1094,7 +1144,7 @@ public class WindowTests
         // would work if only the right thing were selected. Absent reads as not applicable.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var combo = window.GetControl<ComboBox>("BrushCombo");
 
             int native = BrushLibrary.Defaults
@@ -1131,10 +1181,10 @@ public class WindowTests
         // showing it, so no pen session is ever opened and no frame is ever presented.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow
+            var window = TestWindows.Track(new MainWindow
             {
                 PenOutcomeForTest = MainWindow.PenForTest.Refused,
-            };
+            });
 
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -1163,10 +1213,10 @@ public class WindowTests
         OnTheUiThread.Run(() =>
         {
             var asked = new List<string>();
-            var window = new MainWindow
+            var window = TestWindows.Track(new MainWindow
             {
                 PenOutcomeForTest = MainWindow.PenForTest.NoDriver,
-            };
+            });
 
             window.AskAboutPen = (_, error) =>
             {
@@ -1206,7 +1256,8 @@ public class WindowTests
         Func<int, PenProblemChoice> answer)
     {
         var asked = new List<string>();
-        var window = new MainWindow { PenOutcomeForTest = MainWindow.PenForTest.Refused };
+        var window = TestWindows.Track(
+            new MainWindow { PenOutcomeForTest = MainWindow.PenForTest.Refused });
 
         window.AskAboutPen = (api, error) =>
         {
@@ -1364,7 +1415,7 @@ public class WindowTests
         // pen is long enough to go looking in the wrong place.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var status = window.GetControl<TextBlock>("StatusLabel");
 
             window.ShowPenState(false);
@@ -1395,7 +1446,7 @@ public class WindowTests
         // flattened and a dry-media brush wants them to build up.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var combo = window.GetControl<ComboBox>("CompositingCombo");
 
             combo.SelectedIndex = 1;
@@ -1414,7 +1465,7 @@ public class WindowTests
         // the last brush wanted and the next stroke quietly disagrees with the panel.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
             var brushes = window.GetControl<ComboBox>("BrushCombo");
             var combo = window.GetControl<ComboBox>("CompositingCombo");
 
@@ -1437,7 +1488,7 @@ public class WindowTests
         // default -- which is the same fault as never setting it, one layer along.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             int green = MainWindow.InkChoices
                 .Select((ink, index) => (ink, index))
@@ -1459,7 +1510,7 @@ public class WindowTests
         // the person drawing actually cares about.
         OnTheUiThread.Run(() =>
         {
-            var window = new MainWindow();
+            var window = TestWindows.Track(new MainWindow());
 
             var brushes = window.GetControl<ComboBox>("BrushCombo");
             brushes.SelectedIndex = BrushLibrary.Defaults
