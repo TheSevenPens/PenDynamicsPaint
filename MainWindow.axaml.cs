@@ -1609,6 +1609,42 @@ public partial class MainWindow : Window
         _renderTimer.Start();
     }
 
+    /// <summary>What the status line last said about the pen, so it is written only on a change.</summary>
+    private bool _penWasRunning = true;
+
+    /// <summary>
+    /// Say when the pen has gone, and say when it comes back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A context can be taken away underneath a running application -- restarting the tablet
+    /// service does it -- and until this was added, nothing showed. The application stayed up with
+    /// its status line still naming the driver and the pen simply stopped working, which reads as
+    /// a broken canvas. The session recovers on its own within a few seconds, but a few seconds of
+    /// a pen that does nothing is long enough to go looking in the wrong place.
+    /// </para>
+    /// <para>
+    /// Not a dialog. The usual case is a blip that heals itself before anyone has finished reading
+    /// a sentence, and interrupting the document for that would be worse than the silence it
+    /// replaces. A dialog is for a session that never started at all.
+    /// </para>
+    /// <para>
+    /// Written only when the answer changes, since this is asked on every frame -- and the line is
+    /// shared with everything else the application says, so rewriting it sixty times a second
+    /// would be the last word anybody ever saw.
+    /// </para>
+    /// </remarks>
+    internal void ShowPenState(bool running)
+    {
+        if (running == _penWasRunning) return;
+
+        _penWasRunning = running;
+
+        StatusLabel.Text = running
+            ? $"{_api?.Label() ?? "Pen"}: working again"
+            : "The tablet driver took the pen away. Trying to get it back...";
+    }
+
     /// <summary>Say that the tablet could not be opened, and what can be done about it.</summary>
     /// <remarks>
     /// The driver's own words plus a way out, because the words on their own are not actionable:
@@ -1688,6 +1724,12 @@ public partial class MainWindow : Window
         if (_penSession is null) return;
 
         var points = _penSession.DrainPoints();
+
+        // After the drain, because the drain is what looks. Before the early return, because a
+        // session whose context has been taken away delivers no points at all -- checking after
+        // that return would be checking only while the pen was working.
+        ShowPenState(_penSession.IsRunning);
+
         if (points.Length == 0) return;
 
         int maxPressure = _penSession.MaxPressure;

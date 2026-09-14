@@ -991,6 +991,38 @@ public class WindowTests
     }
 
     [Fact]
+    public void The_status_line_says_when_the_pen_has_gone_and_when_it_returns()
+    {
+        // A context can be taken away underneath a running application -- restarting the tablet
+        // service does it -- and until this existed nothing showed. The window stayed up with its
+        // status line still naming the driver while the pen did nothing, which reads as a broken
+        // canvas. The session gets itself back within a few seconds, but a few seconds of a dead
+        // pen is long enough to go looking in the wrong place.
+        OnTheUiThread.Run(() =>
+        {
+            var window = new MainWindow();
+            var status = window.GetControl<TextBlock>("StatusLabel");
+
+            window.ShowPenState(false);
+            Assert.Contains("took the pen away", status.Text);
+
+            window.ShowPenState(true);
+            Assert.Contains("working again", status.Text);
+
+            // Written only when the answer changes. This is asked once a frame, and the line is
+            // shared with everything else the application says, so a repeat would be the last
+            // word anybody ever saw.
+            status.Text = "Document saved";
+            window.ShowPenState(true);
+            Assert.Equal("Document saved", status.Text);
+
+            // But a real change still gets through.
+            window.ShowPenState(false);
+            Assert.Contains("took the pen away", status.Text);
+        });
+    }
+
+    [Fact]
     public void The_compositing_choice_reaches_the_brush()
     {
         // A brush setting now rather than a document one. It sat on the document because it
