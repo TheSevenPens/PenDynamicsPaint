@@ -226,10 +226,11 @@ public sealed class RoundBrushEngine : IBrushEngine
     /// every sample. A single filled path has no overlaps to double.
     /// </para>
     /// <para>
-    /// The straight sides are the circles' external tangents. For centres <c>d</c> apart with
-    /// radii <c>ra</c> and <c>rb</c>, both tangent points lie along the same normal, offset from
-    /// the centre line by <c>asin((ra - rb) / d)</c> — which is what makes the sides meet the
-    /// caps smoothly instead of cutting across them.
+    /// The straight sides are the circles' external tangents. A side that is tangent meets each
+    /// radius at a right angle, so the tangent points sit at <c>acos((ra - rb) / d)</c> from the
+    /// centre line: the normal to the centre line, turned <b>back towards the wide end</b> by
+    /// <c>asin((ra - rb) / d)</c>. Turning it the other way gives a shape that still closes and
+    /// still looks like a taper, with sides that cut across the caps instead of meeting them.
     /// </para>
     /// </remarks>
     internal static void BuildTaper(SKPath path, SKPoint a, float ra, SKPoint b, float rb)
@@ -254,9 +255,10 @@ public sealed class RoundBrushEngine : IBrushEngine
         float phi = MathF.Atan2(dy, dx);
         float alpha = MathF.Asin(Math.Clamp((ra - rb) / d, -1f, 1f));
 
-        // The shared normal of the two external tangent lines, one on each side of the axis.
-        float up = phi + MathF.PI / 2 + alpha;
-        float down = phi - MathF.PI / 2 - alpha;
+        // The external tangent points, one either side of the axis. The offset is subtracted
+        // from the normal on both sides, which is what leans the sides in towards the narrow end.
+        float up = phi + MathF.PI / 2 - alpha;
+        float down = phi - MathF.PI / 2 + alpha;
 
         float alphaDeg = alpha * 180f / MathF.PI;
 
@@ -264,10 +266,12 @@ public sealed class RoundBrushEngine : IBrushEngine
         path.LineTo(b.X + rb * MathF.Cos(up), b.Y + rb * MathF.Sin(up));
 
         // Round the far end, then the near one. Both sweeps run the same way round so the contour
-        // stays simple; together they account for the full 360 degrees the two caps share.
-        path.ArcTo(Bounds(b, rb), Deg(up), -(180f + 2f * alphaDeg), false);
+        // stays simple, and together they account for the full 360 degrees the two caps share.
+        // The wide end takes the larger share of it, being the end that bulges out past its own
+        // tangent points.
+        path.ArcTo(Bounds(b, rb), Deg(up), -(180f - 2f * alphaDeg), false);
         path.LineTo(a.X + ra * MathF.Cos(down), a.Y + ra * MathF.Sin(down));
-        path.ArcTo(Bounds(a, ra), Deg(down), -(180f - 2f * alphaDeg), false);
+        path.ArcTo(Bounds(a, ra), Deg(down), -(180f + 2f * alphaDeg), false);
 
         path.Close();
 
